@@ -351,16 +351,15 @@ fn test_q8_0_correctness() {
         let mut c_dotprod = vec![0.0f32; m * n];
         let mut c_ref = vec![0.0f32; m * n];
 
-        let a_quant = if m > 1 {
-            neon::quantize_activations_q8_0_batched(&a, m, k)
-        } else {
-            neon::quantize_activations_q8_0(&a, k)
-        };
-
-        matmul_q8_0_dotprod_reference(&a_quant, &b_quant, m, n, k, &mut c_ref);
-
         #[cfg(target_arch = "aarch64")]
         {
+            let a_quant = if m > 1 {
+                neon::quantize_activations_q8_0_batched(&a, m, k)
+            } else {
+                neon::quantize_activations_q8_0(&a, k)
+            };
+
+            matmul_q8_0_dotprod_reference(&a_quant, &b_quant, m, n, k, &mut c_ref);
             neon::matmul_q8_0_dotprod(&a, &b_quant, m, n, k, &mut c_dotprod);
 
             for i in 0..c_ref.len() {
@@ -375,6 +374,11 @@ fn test_q8_0_correctness() {
                     diff
                 );
             }
+        }
+
+        #[cfg(not(target_arch = "aarch64"))]
+        {
+            matmul_q8_0(&a, &b_quant, m, n, k, &mut c_dotprod);
         }
     }
 }

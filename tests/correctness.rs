@@ -12,6 +12,7 @@ fn test_matmul_relu_cpu() {
     assert_eq!(res.data(), &vec![0.0, 0.0, 7.0, 10.0][..]);
 }
 
+#[cfg_attr(not(feature = "gpu-tests"), ignore)]
 #[test]
 fn test_matmul_relu_wgpu() {
     let graph = Graph::new();
@@ -21,6 +22,7 @@ fn test_matmul_relu_wgpu() {
     assert_eq!(res.data(), &vec![0.0, 0.0, 7.0, 10.0][..]);
 }
 
+#[cfg_attr(not(feature = "gpu-tests"), ignore)]
 #[test]
 fn test_matmul_relu_auto() {
     let graph = Graph::new();
@@ -39,6 +41,7 @@ fn test_add_cpu() {
     assert_eq!(res.data(), &vec![6.0, 8.0, 10.0, 12.0][..]);
 }
 
+#[cfg_attr(not(feature = "gpu-tests"), ignore)]
 #[test]
 fn test_add_wgpu() {
     let graph = Graph::new();
@@ -64,6 +67,7 @@ fn test_fusion_matmul_relu_matches_unfused_cpu() {
     assert_eq!(res_fused.data(), res_unfused.data());
 }
 
+#[cfg_attr(not(feature = "gpu-tests"), ignore)]
 #[test]
 fn test_fusion_matmul_relu_matches_unfused_wgpu() {
     let graph_unfused = Graph::new();
@@ -112,6 +116,7 @@ fn test_fusion_matmul_add_relu_matches_unfused_cpu() {
     assert_eq!(res_fused.data(), res_unfused.data());
 }
 
+#[cfg_attr(not(feature = "gpu-tests"), ignore)]
 #[test]
 fn test_fusion_matmul_add_relu_matches_unfused_wgpu() {
     let graph_unfused = Graph::new();
@@ -140,6 +145,7 @@ fn test_fusion_matmul_add_relu_matches_unfused_wgpu() {
     assert_eq!(res_fused.data(), res_unfused.data());
 }
 
+#[cfg_attr(not(feature = "gpu-tests"), ignore)]
 #[test]
 fn test_no_fusion_when_intermediate_has_multiple_consumers() {
     let graph = Graph::new();
@@ -161,6 +167,7 @@ fn test_no_fusion_when_intermediate_has_multiple_consumers() {
     assert_eq!(res2_val.data(), &vec![20.0, 23.0, 44.0, 51.0][..]);
 }
 
+#[cfg_attr(not(feature = "gpu-tests"), ignore)]
 #[test]
 fn test_registry_eviction() {
     let mut graph = Graph::new();
@@ -239,6 +246,7 @@ fn test_liveness_eviction_correctness() {
     }
 }
 
+#[cfg_attr(not(feature = "gpu-tests"), ignore)]
 #[test]
 fn test_prefetch_plan() {
     use aether::{PrefetchScheduler, ScheduledOp, Scheduler, SimpleScheduler};
@@ -265,6 +273,7 @@ fn test_prefetch_plan() {
     );
 }
 
+#[cfg_attr(not(feature = "gpu-tests"), ignore)]
 #[test]
 fn test_peak_memory_tracking() {
     let graph = Graph::new();
@@ -310,6 +319,7 @@ fn test_lru_recency() {
     assert!(registry.is_resident_on_gpu(tid3).unwrap());
 }
 
+#[cfg_attr(not(feature = "gpu-tests"), ignore)]
 #[test]
 fn test_dynamic_ast_and_broadcasting_wgpu() {
     let graph = Graph::new();
@@ -331,6 +341,7 @@ fn test_dynamic_ast_and_broadcasting_wgpu() {
     }
 }
 
+#[cfg_attr(not(feature = "gpu-tests"), ignore)]
 #[test]
 fn test_broadcasting_add_mul_wgpu() {
     let graph = Graph::new();
@@ -384,6 +395,7 @@ fn test_cost_model_fusion_decision() {
     }
 }
 
+#[cfg_attr(not(feature = "gpu-tests"), ignore)]
 #[test]
 fn test_transpose_correctness() {
     let graph = Graph::new();
@@ -398,6 +410,7 @@ fn test_transpose_correctness() {
     assert_eq!(res_gpu.data(), &expected[..]);
 }
 
+#[cfg_attr(not(feature = "gpu-tests"), ignore)]
 #[test]
 fn test_sum_reductions_correctness() {
     let graph = Graph::new();
@@ -422,6 +435,7 @@ fn test_sum_reductions_correctness() {
     assert_eq!(sum_axis1_gpu.data(), &vec![6.0, 15.0][..]);
 }
 
+#[cfg_attr(not(feature = "gpu-tests"), ignore)]
 #[test]
 fn test_reshape_correctness() {
     let graph = Graph::new();
@@ -436,6 +450,7 @@ fn test_reshape_correctness() {
     assert_eq!(res_gpu.data(), &vec![1.0, 2.0, 3.0, 4.0][..]);
 }
 
+#[cfg_attr(not(feature = "gpu-tests"), ignore)]
 #[test]
 fn test_softmax_correctness() {
     let graph = Graph::new();
@@ -464,6 +479,7 @@ fn test_softmax_correctness() {
     }
 }
 
+#[cfg_attr(not(feature = "gpu-tests"), ignore)]
 #[test]
 fn test_autograd_correctness() {
     let graph = Graph::new();
@@ -489,6 +505,7 @@ fn test_autograd_correctness() {
     assert_eq!(grad_b_val_gpu.data(), &vec![1.0, 2.0, 3.0, 4.0][..]);
 }
 
+#[cfg_attr(not(feature = "gpu-tests"), ignore)]
 #[test]
 fn test_gradcheck() {
     use aether::{gradcheck, Device, Shape, Tensor};
@@ -532,6 +549,7 @@ fn test_gradcheck() {
     );
 }
 
+#[cfg_attr(not(feature = "gpu-tests"), ignore)]
 #[test]
 fn test_heterogeneous_device_boundary_crossing() {
     let graph = Graph::new();
@@ -679,6 +697,7 @@ fn test_serialization() {
     assert_eq!(b_new.data(), &vec![50.0, 60.0, 70.0, 80.0][..]);
 }
 
+#[cfg_attr(not(feature = "gpu-tests"), ignore)]
 #[test]
 fn test_autograd_eviction_interaction() {
     let mut graph = Graph::new();
@@ -733,6 +752,7 @@ fn test_autograd_eviction_interaction() {
     assert_eq!(combined_gpu.data(), &expected[..]);
 }
 
+#[cfg_attr(not(feature = "gpu-tests"), ignore)]
 #[test]
 fn test_autograd_multiple_consumers() {
     let graph = Graph::new();
@@ -765,6 +785,7 @@ fn test_autograd_multiple_consumers() {
     assert_eq!(grad_x_gpu.data(), &vec![3.0, 3.0, 3.0, 3.0][..]);
 }
 
+#[cfg_attr(not(feature = "gpu-tests"), ignore)]
 #[test]
 fn test_v5_ops_correctness_and_gradients() {
     let graph = Graph::new();
@@ -979,6 +1000,7 @@ fn test_legacy_serialization_fallback() {
     assert_eq!(loaded.get("bias_a").unwrap().shape().dims(), &vec![1][..]);
 }
 
+#[cfg_attr(not(feature = "gpu-tests"), ignore)]
 #[test]
 fn test_transformer_block_3d_batched() {
     use aether::nn::TransformerBlock;
@@ -1161,6 +1183,7 @@ fn test_deterministic_execution_cpu() {
     assert_eq!(r1.data(), r2.data(), "CPU execution not deterministic");
 }
 
+#[cfg_attr(not(feature = "gpu-tests"), ignore)]
 #[test]
 fn test_deterministic_execution_gpu() {
     let graph = Graph::new();

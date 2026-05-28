@@ -1,5 +1,6 @@
 use crate::inference::model_loader::{LlamaConfig, LlamaModel, QuantWeight};
 use crate::Device;
+#[cfg(target_os = "macos")]
 use std::process::Command;
 
 // Memory-aware layer scheduler for heterogeneous CPU+GPU execution.
