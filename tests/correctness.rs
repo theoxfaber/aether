@@ -285,6 +285,7 @@ fn test_peak_memory_tracking() {
     assert_eq!(graph.upload_count(), 2);
 }
 
+#[cfg_attr(not(feature = "gpu-tests"), ignore)]
 #[test]
 fn test_lru_recency() {
     use aether::{BufferRegistry, Dtype, TensorId};
