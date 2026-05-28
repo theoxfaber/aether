@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
   pull_request:
-    branches: [main, master]
+    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
@@ -20,22 +20,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
+      - name: Install clippy
+        run: rustup component add clippy
       - uses: Swatinem/rust-cache@v2
         with:
           key: ci-${{ matrix.os }}
-
-      - name: Build (${{ matrix.os }})
+      - name: Build
         run: cargo build
-
-      - name: Test (${{ matrix.os }})
+      - name: Test
         run: cargo test
-
-      - name: Clippy (${{ matrix.os }})
+      - name: Clippy
         run: cargo clippy -- -D warnings
 
   fmt:
@@ -43,8 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
+      - name: Install Rust
+        run: rustup update stable && rustup default stable && rustup component add rustfmt
       - name: Check formatting
         run: cargo fmt --check
