@@ -1,6 +1,6 @@
 # Aether
 
-[![CI](https://github.com/theoxfaber/aether/actions/workflows/ci.yml/badge.svg)](https://github.com/theoxfaber/aether/actions/workflows/ci.yml)
+[![CI](https://github.com/theoxfaber/aether/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/theoxfaber/aether/actions/workflows/ci.yml)
 
 A Rust-native heterogeneous compute runtime with an optimizing scheduler, automatic differentiation, and LLM inference engine. Write compute operations once — Aether automatically schedules, fuses, and executes them across CPU and GPU (WGPU/Metal) without manual memory management.
 
