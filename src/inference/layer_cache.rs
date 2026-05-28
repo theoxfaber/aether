@@ -339,7 +339,7 @@ mod tests {
         w.write_all(s.as_bytes()).unwrap();
     }
     fn pad_to(w: &mut Vec<u8>, align: usize) {
-        while w.len() % align != 0 {
+        while !w.len().is_multiple_of(align) {
             w.push(0);
         }
     }
@@ -432,7 +432,7 @@ mod tests {
         pad_to(&mut buf, 32);
 
         // Write tensor data
-        for (_i, name) in layer_tensor_names.iter().enumerate() {
+        for name in layer_tensor_names.iter() {
             let n_elems = if name.contains("norm") {
                 d_model
             } else {

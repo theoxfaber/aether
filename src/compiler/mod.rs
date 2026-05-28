@@ -122,6 +122,39 @@ fn run_layout_optimize_pass(graph: &Graph) -> Result<(), Error> {
     Ok(())
 }
 
+/// Check if a node depends on the output of the graph (reachable from output node).
+pub fn is_reachable_from_output(graph: &Graph, node_idx: petgraph::graph::NodeIndex) -> bool {
+    let inner = graph
+        .inner
+        .read()
+        .expect("graph lock poisoned in reachability check");
+    let dag = &inner.dag;
+
+    // Find the output node (node with no outgoing edges)
+    let output = match dag.node_indices().find(|&n| {
+        dag.neighbors_directed(n, petgraph::Direction::Outgoing)
+            .count()
+            == 0
+    }) {
+        Some(n) => n,
+        None => return false,
+    };
+
+    // Reverse BFS from output
+    use petgraph::visit::EdgeRef;
+    let mut visited = std::collections::HashSet::new();
+    let mut stack = vec![output];
+    while let Some(n) = stack.pop() {
+        if !visited.insert(n) {
+            continue;
+        }
+        for edge in dag.edges_directed(n, petgraph::Direction::Incoming) {
+            stack.push(edge.source());
+        }
+    }
+    visited.contains(&node_idx)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::graph::Graph;
@@ -291,37 +324,4 @@ mod tests {
             assert!((x - y).abs() < 1e-5, "compile changed result: {x} vs {y}");
         }
     }
-}
-
-/// Check if a node depends on the output of the graph (reachable from output node).
-pub fn is_reachable_from_output(graph: &Graph, node_idx: petgraph::graph::NodeIndex) -> bool {
-    let inner = graph
-        .inner
-        .read()
-        .expect("graph lock poisoned in reachability check");
-    let dag = &inner.dag;
-
-    // Find the output node (node with no outgoing edges)
-    let output = match dag.node_indices().find(|&n| {
-        dag.neighbors_directed(n, petgraph::Direction::Outgoing)
-            .count()
-            == 0
-    }) {
-        Some(n) => n,
-        None => return false,
-    };
-
-    // Reverse BFS from output
-    use petgraph::visit::EdgeRef;
-    let mut visited = std::collections::HashSet::new();
-    let mut stack = vec![output];
-    while let Some(n) = stack.pop() {
-        if !visited.insert(n) {
-            continue;
-        }
-        for edge in dag.edges_directed(n, petgraph::Direction::Incoming) {
-            stack.push(edge.source());
-        }
-    }
-    visited.contains(&node_idx)
 }

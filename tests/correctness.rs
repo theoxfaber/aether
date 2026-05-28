@@ -1251,7 +1251,7 @@ fn make_gaussian_block(rows: usize, cols: usize, mean: f32, std: f32) -> Vec<f32
         .map(|_| {
             let u1: f32 = rng.gen();
             let u2: f32 = rng.gen();
-            let z = (-2.0 * u1.ln()).sqrt() * (6.2831853 * u2).cos();
+            let z = (-2.0 * u1.ln()).sqrt() * (std::f32::consts::TAU * u2).cos();
             (z * std + mean).clamp(-1.5, 1.5)
         })
         .collect()

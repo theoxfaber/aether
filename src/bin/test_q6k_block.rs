@@ -42,7 +42,7 @@ fn dequant_q6k_one_block(data: &[u8], bo: usize) -> Vec<f32> {
             let q3 = ((ql_l >> 4) | (qh_l & 0x30)) as i32 - 32;
             let q4 = ((ql_l32 >> 4) | ((qh_l & 0xC0) >> 2)) as i32 - 32;
 
-            let s1 = sc[sc_off + is ] as i8 as f32;
+            let s1 = sc[sc_off + is] as i8 as f32;
             let s2 = sc[sc_off + is + 2] as i8 as f32;
             let s3 = sc[sc_off + is + 4] as i8 as f32;
             let s4 = sc[sc_off + is + 6] as i8 as f32;

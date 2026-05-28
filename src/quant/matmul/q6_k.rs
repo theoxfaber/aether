@@ -42,7 +42,7 @@ pub(crate) fn matmul_q6_k_scalar(
 
                 for l in (0..32).step_by(16) {
                     let is = l / 16;
-                    let s1_val = sc[sc_off + is ] as i8 as f32;
+                    let s1_val = sc[sc_off + is] as i8 as f32;
                     let s2_val = sc[sc_off + is + 2] as i8 as f32;
                     let s3_val = sc[sc_off + is + 4] as i8 as f32;
                     let s4_val = sc[sc_off + is + 6] as i8 as f32;
@@ -132,7 +132,7 @@ fn matmul_q6_k_batched_scalar(
 
                     for l in (0..32).step_by(16) {
                         let is = l / 16;
-                        let s1_val = sc[sc_off + is ] as i8 as f32;
+                        let s1_val = sc[sc_off + is] as i8 as f32;
                         let s2_val = sc[sc_off + is + 2] as i8 as f32;
                         let s3_val = sc[sc_off + is + 4] as i8 as f32;
                         let s4_val = sc[sc_off + is + 6] as i8 as f32;

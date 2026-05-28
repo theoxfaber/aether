@@ -4277,7 +4277,7 @@ pub mod wgpu_backend_mod {
                 });
                 compute_pass.set_pipeline(&pipeline);
                 compute_pass.set_bind_group(0, &bind_group, &[]);
-                let total = n * o * h_out * w_out ;
+                let total = n * o * h_out * w_out;
                 let w_x = total.div_ceil(256);
                 compute_pass.dispatch_workgroups(w_x, 1, 1);
             }

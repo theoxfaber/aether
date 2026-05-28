@@ -369,15 +369,7 @@ fn deq(
 }
 
 fn qm(a: &[f32], t: &aether::loader::gguf::GGUFTensor, c: &mut [f32]) {
-    quantized_matmul_impl(
-        a,
-        1,
-        &t.data,
-        &[t.shape[1], t.shape[0]],
-        t.dtype,
-        c,
-        None,
-    )
+    quantized_matmul_impl(a, 1, &t.data, &[t.shape[1], t.shape[0]], t.dtype, c, None)
 }
 
 fn mf32(a: &[f32], b: &[f32], _m: usize, n: usize, k: usize, c: &mut [f32]) {

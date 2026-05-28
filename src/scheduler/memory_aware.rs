@@ -358,16 +358,9 @@ impl MemoryAwareScheduler {
         // Compute per-layer footprints:
         //   - layer_gpu_sizes: dequantized f32 sizes (what GPU buffers actually store)
         //   - layer_sizes: quantized on-disk sizes (used for total model estimate)
-        let layer_gpu_sizes: Vec<usize> = model
-            .layers
-            .iter()
-            .map(Self::layer_gpu_footprint)
-            .collect();
-        let layer_sizes: Vec<usize> = model
-            .layers
-            .iter()
-            .map(Self::layer_footprint)
-            .collect();
+        let layer_gpu_sizes: Vec<usize> =
+            model.layers.iter().map(Self::layer_gpu_footprint).collect();
+        let layer_sizes: Vec<usize> = model.layers.iter().map(Self::layer_footprint).collect();
         let total_model: usize = layer_sizes.iter().sum();
 
         // Overhead that lives in shared/cpu memory (not dequantized on GPU):

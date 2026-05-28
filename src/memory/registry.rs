@@ -278,7 +278,8 @@ impl BufferRegistry {
                     crate::Error::ExecutionError(
                         "gpu_buffer must be Some when location is Gpu/Both".to_string(),
                     )
-                }).cloned();
+                })
+                .cloned();
         }
 
         // 3. Otherwise, we need to upload from CPU. Check/evict for space first.
@@ -340,7 +341,8 @@ impl BufferRegistry {
             .as_ref()
             .ok_or_else(|| {
                 crate::Error::ExecutionError("gpu_buffer was just set above".to_string())
-            }).cloned()
+            })
+            .cloned()
     }
 
     pub fn get_gpu_view(

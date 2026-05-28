@@ -482,7 +482,7 @@ fn requantize_q6_k(data: &[f32], shape: &[usize]) -> Vec<u8> {
 
                 for l in 0..32 {
                     let is = l / 16;
-                    let s1 = sc[sc_off + is ] as f32;
+                    let s1 = sc[sc_off + is] as f32;
                     let s2 = sc[sc_off + is + 2] as f32;
                     let s3 = sc[sc_off + is + 4] as f32;
                     let s4 = sc[sc_off + is + 6] as f32;
