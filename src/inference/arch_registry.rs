@@ -15,11 +15,7 @@ pub trait ArchitectureLoader: Send + Sync {
     fn name(&self) -> &'static str;
 
     /// Load a [`LlamaModel`] from parsed GGUF data.
-    fn load(
-        &self,
-        model: &GGUFModel,
-        lazy_layers: bool,
-    ) -> Result<LlamaModel, Error>;
+    fn load(&self, model: &GGUFModel, lazy_layers: bool) -> Result<LlamaModel, Error>;
 }
 
 // ── Registry ──────────────────────────────────────────────────────────────
@@ -42,7 +38,9 @@ fn registry() -> &'static Mutex<LoaderMap> {
 /// Panics if a loader for that name is already registered.
 pub fn register_loader(loader: Box<dyn ArchitectureLoader>) {
     let name = loader.name();
-    let mut reg = registry().lock().expect("ArchitectureLoader registry lock poisoned");
+    let mut reg = registry()
+        .lock()
+        .expect("ArchitectureLoader registry lock poisoned");
     if reg.contains_key(name) {
         panic!("ArchitectureLoader for '{}' already registered", name);
     }
@@ -58,8 +56,11 @@ pub fn load_model(
     model: &GGUFModel,
     lazy_layers: bool,
 ) -> Option<Result<LlamaModel, Error>> {
-    let reg = registry().lock().expect("ArchitectureLoader registry lock poisoned");
-    reg.get(architecture_name).map(|loader| loader.load(model, lazy_layers))
+    let reg = registry()
+        .lock()
+        .expect("ArchitectureLoader registry lock poisoned");
+    reg.get(architecture_name)
+        .map(|loader| loader.load(model, lazy_layers))
 }
 
 // ── Default Llama-family loader ───────────────────────────────────────────
@@ -71,11 +72,7 @@ impl ArchitectureLoader for LlamaLoader {
         "llama"
     }
 
-    fn load(
-        &self,
-        model: &GGUFModel,
-        lazy_layers: bool,
-    ) -> Result<LlamaModel, Error> {
+    fn load(&self, model: &GGUFModel, lazy_layers: bool) -> Result<LlamaModel, Error> {
         LlamaModel::from_gguf(model, lazy_layers)
     }
 }
@@ -109,11 +106,7 @@ mod tests {
         fn name(&self) -> &'static str {
             "test_arch"
         }
-        fn load(
-            &self,
-            _model: &GGUFModel,
-            _lazy_layers: bool,
-        ) -> Result<LlamaModel, Error> {
+        fn load(&self, _model: &GGUFModel, _lazy_layers: bool) -> Result<LlamaModel, Error> {
             Err(Error::ExecutionError("test only".into()))
         }
     }

@@ -97,9 +97,9 @@ fn main() -> Result<(), Error> {
     eprintln!("max_abs_diff={:.6}", max_diff);
 
     let mut q6k_top: Vec<_> = last_logits_q6k.iter().enumerate().collect();
-    q6k_top.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    q6k_top.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
     let mut f32_top: Vec<_> = last_logits_f32.iter().enumerate().collect();
-    f32_top.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    f32_top.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
 
     eprintln!(
         "Q6_K top-5: {:?}",

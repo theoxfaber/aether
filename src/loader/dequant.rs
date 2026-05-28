@@ -65,7 +65,7 @@ pub fn dequantize(data: &[u8], dtype: GGUFDtype, shape: &[usize]) -> Vec<f32> {
 pub fn dequant_f32(data: &[u8], shape: &[usize]) -> Vec<f32> {
     let n: usize = shape.iter().product();
     let mut out = vec![0.0f32; n];
-    if data.as_ptr() as usize % std::mem::align_of::<f32>() == 0 {
+    if (data.as_ptr() as usize).is_multiple_of(std::mem::align_of::<f32>()) {
         let src = bytemuck::cast_slice::<u8, f32>(data);
         let copy_len = n.min(src.len());
         out[..copy_len].copy_from_slice(&src[..copy_len]);
@@ -85,7 +85,7 @@ pub fn dequant_f32(data: &[u8], shape: &[usize]) -> Vec<f32> {
 }
 
 pub fn dequant_f16(data: &[u8], _shape: &[usize]) -> Vec<f32> {
-    if data.as_ptr() as usize % std::mem::align_of::<half::f16>() == 0 {
+    if (data.as_ptr() as usize).is_multiple_of(std::mem::align_of::<half::f16>()) {
         let src = bytemuck::cast_slice::<u8, half::f16>(data);
         src.iter().map(|&x| x.to_f32()).collect()
     } else {
@@ -265,8 +265,8 @@ pub fn dequant_q5_k(data: &[u8], shape: &[usize]) -> Vec<f32> {
                 let qh_byte_hi = qh[((is + 1) * 32 + l) / 8];
                 let qh_bit_hi = (qh_byte_hi >> (((is + 1) * 32 + l) % 8)) & 1;
 
-                let q_lo = ((ql_lo as u8) | (qh_bit_lo << 4)) as f32;
-                let q_hi = ((ql_hi as u8) | (qh_bit_hi << 4)) as f32;
+                let q_lo = (ql_lo | (qh_bit_lo << 4)) as f32;
+                let q_hi = (ql_hi | (qh_bit_hi << 4)) as f32;
 
                 let idx_lo = bi * 256 + is * 32 + l;
                 let idx_hi = idx_lo + 32;
@@ -331,7 +331,7 @@ pub fn dequant_q6_k(data: &[u8], shape: &[usize]) -> Vec<f32> {
                 let q3 = ((ql_l >> 4) | (qh_l & 0x30)) as i32 - 32;
                 let q4 = ((ql_l32 >> 4) | ((qh_l & 0xC0) >> 2)) as i32 - 32;
 
-                let s1 = sc[sc_off + is + 0] as i8 as f32;
+                let s1 = sc[sc_off + is] as i8 as f32;
                 let s2 = sc[sc_off + is + 2] as i8 as f32;
                 let s3 = sc[sc_off + is + 4] as i8 as f32;
                 let s4 = sc[sc_off + is + 6] as i8 as f32;
@@ -416,7 +416,7 @@ pub fn dequant_q3_k(data: &[u8], shape: &[usize]) -> Vec<f32> {
         }
         for i in 0..4 {
             let b = sr[i + 8];
-            sc[i] |= ((b >> 0) as i16 & 0x03) << 4;
+            sc[i] |= (b as i16 & 0x03) << 4;
             sc[i + 4] |= ((b >> 2) as i16 & 0x03) << 4;
             sc[i + 8] |= ((b >> 4) as i16 & 0x03) << 4;
             sc[i + 12] |= ((b >> 6) as i16 & 0x03) << 4;
@@ -477,7 +477,7 @@ pub fn dequant_i8(data: &[u8], _shape: &[usize]) -> Vec<f32> {
 }
 
 pub fn dequant_i16(data: &[u8], _shape: &[usize]) -> Vec<f32> {
-    if data.as_ptr() as usize % std::mem::align_of::<i16>() == 0 {
+    if (data.as_ptr() as usize).is_multiple_of(std::mem::align_of::<i16>()) {
         let src = bytemuck::cast_slice::<u8, i16>(data);
         src.iter().map(|&x| x as f32).collect()
     } else {
@@ -493,7 +493,7 @@ pub fn dequant_i16(data: &[u8], _shape: &[usize]) -> Vec<f32> {
 }
 
 pub fn dequant_i32(data: &[u8], _shape: &[usize]) -> Vec<f32> {
-    if data.as_ptr() as usize % std::mem::align_of::<i32>() == 0 {
+    if (data.as_ptr() as usize).is_multiple_of(std::mem::align_of::<i32>()) {
         let src = bytemuck::cast_slice::<u8, i32>(data);
         src.iter().map(|&x| x as f32).collect()
     } else {
@@ -570,8 +570,8 @@ pub fn dequant_q5_k_block(data: &[u8]) -> [f32; 256] {
             let qh_byte_hi = qh[((is + 1) * 32 + l) / 8];
             let qh_bit_hi = (qh_byte_hi >> (((is + 1) * 32 + l) % 8)) & 1;
 
-            let q_lo = ((ql_lo as u8) | (qh_bit_lo << 4)) as f32;
-            let q_hi = ((ql_hi as u8) | (qh_bit_hi << 4)) as f32;
+            let q_lo = (ql_lo | (qh_bit_lo << 4)) as f32;
+            let q_hi = (ql_hi | (qh_bit_hi << 4)) as f32;
 
             out[is * 32 + l] = d1 * q_lo - m1;
             out[(is + 1) * 32 + l] = d2 * q_hi - m2;
@@ -607,7 +607,7 @@ pub fn dequant_q6_k_block(data: &[u8]) -> [f32; 256] {
             let q3 = ((ql_l >> 4) | (qh_l & 0x30)) as i32 - 32;
             let q4 = ((ql_l32 >> 4) | ((qh_l & 0xC0) >> 2)) as i32 - 32;
 
-            let s1 = sc[sc_off + is + 0] as i8 as f32;
+            let s1 = sc[sc_off + is] as i8 as f32;
             let s2 = sc[sc_off + is + 2] as i8 as f32;
             let s3 = sc[sc_off + is + 4] as i8 as f32;
             let s4 = sc[sc_off + is + 6] as i8 as f32;

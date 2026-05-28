@@ -1,10 +1,10 @@
-use rayon::prelude::*;
+use crate::loader::dequant::dequantize;
+use crate::loader::gguf::GGUFDtype;
+use crate::quant::matmul::f16;
 use crate::quant::matmul::neon;
 use crate::quant::matmul::q2_k;
 use crate::quant::matmul::q3_k;
-use crate::quant::matmul::f16;
-use crate::loader::dequant::dequantize;
-use crate::loader::gguf::GGUFDtype;
+use rayon::prelude::*;
 
 // ── Q5_K dispatch ─────────────────────────────────────────────────────
 
@@ -268,7 +268,9 @@ fn requantize_q4_k(data: &[f32], shape: &[usize]) -> Vec<u8> {
                     let idx1 = (is + 1) * 32 + l;
 
                     let q0 = if idx0 < actual_block {
-                        if d1 == 0.0 { 0 } else {
+                        if d1 == 0.0 {
+                            0
+                        } else {
                             ((block[idx0] + m1) / d1).round().max(0.0).min(15.0) as u8
                         }
                     } else {
@@ -276,7 +278,9 @@ fn requantize_q4_k(data: &[f32], shape: &[usize]) -> Vec<u8> {
                     };
 
                     let q1 = if idx1 < actual_block {
-                        if d2 == 0.0 { 0 } else {
+                        if d2 == 0.0 {
+                            0
+                        } else {
                             ((block[idx1] + m2) / d2).round().max(0.0).min(15.0) as u8
                         }
                     } else {
@@ -380,7 +384,9 @@ fn requantize_q5_k(data: &[f32], shape: &[usize]) -> Vec<u8> {
                     let idx1 = (is + 1) * 32 + l;
 
                     let q0 = if idx0 < actual_block {
-                        if d1 == 0.0 { 0 } else {
+                        if d1 == 0.0 {
+                            0
+                        } else {
                             ((block[idx0] + m1) / d1).round().max(0.0).min(31.0) as i32
                         }
                     } else {
@@ -388,7 +394,9 @@ fn requantize_q5_k(data: &[f32], shape: &[usize]) -> Vec<u8> {
                     };
 
                     let q1 = if idx1 < actual_block {
-                        if d2 == 0.0 { 0 } else {
+                        if d2 == 0.0 {
+                            0
+                        } else {
                             ((block[idx1] + m2) / d2).round().max(0.0).min(31.0) as i32
                         }
                     } else {
@@ -448,7 +456,11 @@ fn requantize_q6_k(data: &[f32], shape: &[usize]) -> Vec<u8> {
             }
 
             let max_val = sub_max_abs.iter().copied().fold(0.0f32, f32::max);
-            let d = if max_val == 0.0 { 1.0 } else { max_val / (32.0 * 127.0) };
+            let d = if max_val == 0.0 {
+                1.0
+            } else {
+                max_val / (32.0 * 127.0)
+            };
 
             let mut sc = [0u8; 16];
             for sb in 0..16 {
@@ -470,7 +482,7 @@ fn requantize_q6_k(data: &[f32], shape: &[usize]) -> Vec<u8> {
 
                 for l in 0..32 {
                     let is = l / 16;
-                    let s1 = sc[sc_off + is + 0] as f32;
+                    let s1 = sc[sc_off + is ] as f32;
                     let s2 = sc[sc_off + is + 2] as f32;
                     let s3 = sc[sc_off + is + 4] as f32;
                     let s4 = sc[sc_off + is + 6] as f32;
@@ -511,10 +523,8 @@ fn requantize_q6_k(data: &[f32], shape: &[usize]) -> Vec<u8> {
 
                     out[off + ql_off + l + 32] = (q2_u & 0x0F) | ((q4_u & 0x0F) << 4);
 
-                    out[off + 128 + qh_off + l] = (q1_u >> 4)
-                        | ((q2_u >> 4) << 2)
-                        | ((q3_u >> 4) << 4)
-                        | ((q4_u >> 4) << 6);
+                    out[off + 128 + qh_off + l] =
+                        (q1_u >> 4) | ((q2_u >> 4) << 2) | ((q3_u >> 4) << 4) | ((q4_u >> 4) << 6);
                 }
             }
         }

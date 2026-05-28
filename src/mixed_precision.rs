@@ -128,9 +128,10 @@ impl GradScaler {
         let scaled_loss = self.scale_loss(loss);
         let node_grads = scaled_loss.backward()?;
         let graph_ptr = scaled_loss.graph();
-        let inner = graph_ptr.inner.read().map_err(|e| {
-            Error::ExecutionError(format!("graph lock poisoned in step: {e}"))
-        })?;
+        let inner = graph_ptr
+            .inner
+            .read()
+            .map_err(|e| Error::ExecutionError(format!("graph lock poisoned in step: {e}")))?;
         let grads: HashMap<TensorId, GraphTensor> = node_grads
             .into_iter()
             .map(|(idx, gt)| {

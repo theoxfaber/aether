@@ -126,21 +126,51 @@ impl LayerCache {
         let d = cfg.d_model;
 
         let attn_norm = load_norm_from_gguf(gguf, &format!("{}attn_norm.weight", prefix), d);
-        let q_proj = load_quant_from_gguf(gguf, &format!("{}attn_q.weight", prefix), enable_f32_cache)
-            .ok_or_else(|| Error::ExecutionError(format!("Missing tensor: {}attn_q.weight", prefix)))?;
-        let k_proj = load_quant_from_gguf(gguf, &format!("{}attn_k.weight", prefix), enable_f32_cache)
-            .ok_or_else(|| Error::ExecutionError(format!("Missing tensor: {}attn_k.weight", prefix)))?;
-        let v_proj = load_quant_from_gguf(gguf, &format!("{}attn_v.weight", prefix), enable_f32_cache)
-            .ok_or_else(|| Error::ExecutionError(format!("Missing tensor: {}attn_v.weight", prefix)))?;
-        let o_proj = load_quant_from_gguf(gguf, &format!("{}attn_output.weight", prefix), enable_f32_cache)
-            .ok_or_else(|| Error::ExecutionError(format!("Missing tensor: {}attn_output.weight", prefix)))?;
+        let q_proj =
+            load_quant_from_gguf(gguf, &format!("{}attn_q.weight", prefix), enable_f32_cache)
+                .ok_or_else(|| {
+                    Error::ExecutionError(format!("Missing tensor: {}attn_q.weight", prefix))
+                })?;
+        let k_proj =
+            load_quant_from_gguf(gguf, &format!("{}attn_k.weight", prefix), enable_f32_cache)
+                .ok_or_else(|| {
+                    Error::ExecutionError(format!("Missing tensor: {}attn_k.weight", prefix))
+                })?;
+        let v_proj =
+            load_quant_from_gguf(gguf, &format!("{}attn_v.weight", prefix), enable_f32_cache)
+                .ok_or_else(|| {
+                    Error::ExecutionError(format!("Missing tensor: {}attn_v.weight", prefix))
+                })?;
+        let o_proj = load_quant_from_gguf(
+            gguf,
+            &format!("{}attn_output.weight", prefix),
+            enable_f32_cache,
+        )
+        .ok_or_else(|| {
+            Error::ExecutionError(format!("Missing tensor: {}attn_output.weight", prefix))
+        })?;
         let ffn_norm = load_norm_from_gguf(gguf, &format!("{}ffn_norm.weight", prefix), d);
-        let gate_proj = load_quant_from_gguf(gguf, &format!("{}ffn_gate.weight", prefix), enable_f32_cache)
-            .ok_or_else(|| Error::ExecutionError(format!("Missing tensor: {}ffn_gate.weight", prefix)))?;
-        let up_proj = load_quant_from_gguf(gguf, &format!("{}ffn_up.weight", prefix), enable_f32_cache)
-            .ok_or_else(|| Error::ExecutionError(format!("Missing tensor: {}ffn_up.weight", prefix)))?;
-        let down_proj = load_quant_from_gguf(gguf, &format!("{}ffn_down.weight", prefix), enable_f32_cache)
-            .ok_or_else(|| Error::ExecutionError(format!("Missing tensor: {}ffn_down.weight", prefix)))?;
+        let gate_proj = load_quant_from_gguf(
+            gguf,
+            &format!("{}ffn_gate.weight", prefix),
+            enable_f32_cache,
+        )
+        .ok_or_else(|| {
+            Error::ExecutionError(format!("Missing tensor: {}ffn_gate.weight", prefix))
+        })?;
+        let up_proj =
+            load_quant_from_gguf(gguf, &format!("{}ffn_up.weight", prefix), enable_f32_cache)
+                .ok_or_else(|| {
+                    Error::ExecutionError(format!("Missing tensor: {}ffn_up.weight", prefix))
+                })?;
+        let down_proj = load_quant_from_gguf(
+            gguf,
+            &format!("{}ffn_down.weight", prefix),
+            enable_f32_cache,
+        )
+        .ok_or_else(|| {
+            Error::ExecutionError(format!("Missing tensor: {}ffn_down.weight", prefix))
+        })?;
 
         Ok(LlamaLayerWeights {
             attn_norm,
@@ -187,7 +217,7 @@ fn load_norm_from_gguf(gguf: &Arc<GGUFModel>, name: &str, _d_model: usize) -> Ve
     let bytes: &[u8] = data;
     match tensor.dtype {
         GGUFDtype::F32 => {
-            if bytes.as_ptr() as usize % std::mem::align_of::<f32>() == 0 {
+            if (bytes.as_ptr() as usize).is_multiple_of(std::mem::align_of::<f32>()) {
                 let floats = bytemuck::cast_slice(bytes);
                 floats.to_vec()
             } else {
@@ -204,7 +234,7 @@ fn load_norm_from_gguf(gguf: &Arc<GGUFModel>, name: &str, _d_model: usize) -> Ve
             }
         }
         GGUFDtype::F16 => {
-            if bytes.as_ptr() as usize % std::mem::align_of::<half::f16>() == 0 {
+            if (bytes.as_ptr() as usize).is_multiple_of(std::mem::align_of::<half::f16>()) {
                 let halves = bytemuck::cast_slice::<_, half::f16>(bytes);
                 halves.iter().map(|h| h.to_f32()).collect()
             } else {

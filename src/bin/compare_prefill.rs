@@ -1,3 +1,4 @@
+#![allow(clippy::needless_range_loop)]
 use aether::inference::runner::LlamaRunner;
 use aether::inference::telemetry::LayerTelemetry;
 use aether::Error;

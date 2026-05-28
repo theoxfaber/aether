@@ -80,7 +80,7 @@ impl StaticMemoryPlanner {
         }
 
         // 2. Sort by size in descending order to minimize fragmentation (Greedy First-Fit Decreasing)
-        arena_tensors.sort_by(|a, b| b.1.cmp(&a.1));
+        arena_tensors.sort_by_key(|a| std::cmp::Reverse(a.1));
 
         let mut placed: Vec<(TensorId, usize, usize, usize, usize)> = Vec::new(); // (tid, size, start, end, offset)
 
@@ -101,7 +101,7 @@ impl StaticMemoryPlanner {
                             conflict = true;
                             // Advance candidate offset past the conflicting tensor, respecting alignment
                             let next_possible = p_offset + p_size;
-                            let aligned = (next_possible + alignment - 1) / alignment * alignment;
+                            let aligned = next_possible.div_ceil(alignment) * alignment;
                             if aligned > candidate_offset {
                                 candidate_offset = aligned;
                             } else {

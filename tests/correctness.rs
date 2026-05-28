@@ -1,7 +1,7 @@
 use aether::{Device, Graph, Shape};
+use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
-use rand::rngs::StdRng;
 
 #[test]
 fn test_matmul_relu_cpu() {
@@ -90,14 +90,24 @@ fn test_fusion_matmul_add_relu_matches_unfused_cpu() {
     let a_unfused = graph_unfused.tensor(vec![-1.0, 0.0, 1.0, 2.0], Shape::new(vec![2, 2]));
     let b_unfused = graph_unfused.tensor(vec![1.0, 2.0, 3.0, 4.0], Shape::new(vec![2, 2]));
     let bias_unfused = graph_unfused.tensor(vec![0.5, -0.5, 1.0, -1.0], Shape::new(vec![2, 2]));
-    let res_unfused = a_unfused.matmul(b_unfused).add(bias_unfused).relu().run(Device::Cpu).unwrap();
+    let res_unfused = a_unfused
+        .matmul(b_unfused)
+        .add(bias_unfused)
+        .relu()
+        .run(Device::Cpu)
+        .unwrap();
 
     let graph_fused = Graph::new();
     graph_fused.enable_fusion(true);
     let a_fused = graph_fused.tensor(vec![-1.0, 0.0, 1.0, 2.0], Shape::new(vec![2, 2]));
     let b_fused = graph_fused.tensor(vec![1.0, 2.0, 3.0, 4.0], Shape::new(vec![2, 2]));
     let bias_fused = graph_fused.tensor(vec![0.5, -0.5, 1.0, -1.0], Shape::new(vec![2, 2]));
-    let res_fused = a_fused.matmul(b_fused).add(bias_fused).relu().run(Device::Cpu).unwrap();
+    let res_fused = a_fused
+        .matmul(b_fused)
+        .add(bias_fused)
+        .relu()
+        .run(Device::Cpu)
+        .unwrap();
 
     assert_eq!(res_fused.data(), res_unfused.data());
 }
@@ -108,14 +118,24 @@ fn test_fusion_matmul_add_relu_matches_unfused_wgpu() {
     let a_unfused = graph_unfused.tensor(vec![-1.0, 0.0, 1.0, 2.0], Shape::new(vec![2, 2]));
     let b_unfused = graph_unfused.tensor(vec![1.0, 2.0, 3.0, 4.0], Shape::new(vec![2, 2]));
     let bias_unfused = graph_unfused.tensor(vec![0.5, -0.5, 1.0, -1.0], Shape::new(vec![2, 2]));
-    let res_unfused = a_unfused.matmul(b_unfused).add(bias_unfused).relu().run(Device::Wgpu).unwrap();
+    let res_unfused = a_unfused
+        .matmul(b_unfused)
+        .add(bias_unfused)
+        .relu()
+        .run(Device::Wgpu)
+        .unwrap();
 
     let graph_fused = Graph::new();
     graph_fused.enable_fusion(true);
     let a_fused = graph_fused.tensor(vec![-1.0, 0.0, 1.0, 2.0], Shape::new(vec![2, 2]));
     let b_fused = graph_fused.tensor(vec![1.0, 2.0, 3.0, 4.0], Shape::new(vec![2, 2]));
     let bias_fused = graph_fused.tensor(vec![0.5, -0.5, 1.0, -1.0], Shape::new(vec![2, 2]));
-    let res_fused = a_fused.matmul(b_fused).add(bias_fused).relu().run(Device::Wgpu).unwrap();
+    let res_fused = a_fused
+        .matmul(b_fused)
+        .add(bias_fused)
+        .relu()
+        .run(Device::Wgpu)
+        .unwrap();
 
     assert_eq!(res_fused.data(), res_unfused.data());
 }
@@ -1227,12 +1247,14 @@ proptest! {
 /// (which is an input limitation, not a code bug).
 fn make_gaussian_block(rows: usize, cols: usize, mean: f32, std: f32) -> Vec<f32> {
     let mut rng = StdRng::seed_from_u64(42);
-    (0..rows * cols).map(|_| {
-        let u1: f32 = rng.gen();
-        let u2: f32 = rng.gen();
-        let z = (-2.0 * u1.ln()).sqrt() * (6.2831853 * u2).cos();
-        (z * std + mean).clamp(-1.5, 1.5)
-    }).collect()
+    (0..rows * cols)
+        .map(|_| {
+            let u1: f32 = rng.gen();
+            let u2: f32 = rng.gen();
+            let z = (-2.0 * u1.ln()).sqrt() * (6.2831853 * u2).cos();
+            (z * std + mean).clamp(-1.5, 1.5)
+        })
+        .collect()
 }
 
 fn test_kquant_deterministic(dtype: GGUFDtype, cols: usize, max_abs_err: f32) {

@@ -337,12 +337,15 @@ impl LlamaRunner {
                 for (i, layer) in model.layers.iter().enumerate() {
                     if layer_assignment.device_for_layer(i) == Device::Wgpu {
                         let upload_weight = |qw: &QuantWeight| -> wgpu::Buffer {
-                            if let Ok(buf) = backend.dequantize_on_gpu(&qw.data, qw.dtype, &qw.shape) {
+                            if let Ok(buf) =
+                                backend.dequantize_on_gpu(&qw.data, qw.dtype, &qw.shape)
+                            {
                                 buf
                             } else {
                                 // Fallback to CPU-side dequantization
                                 let dequant = dequantize(&qw.data, qw.dtype, &qw.shape);
-                                backend.create_buffer_with_data(&dequant, wgpu::BufferUsages::STORAGE)
+                                backend
+                                    .create_buffer_with_data(&dequant, wgpu::BufferUsages::STORAGE)
                             }
                         };
 
@@ -564,8 +567,12 @@ impl LlamaRunner {
                     gpu_v[gpu_offset..gpu_offset + head_dim].copy_from_slice(cpu_v);
                 }
             }
-            backend.queue().write_buffer(kv_k, 0, bytemuck::cast_slice(&gpu_k));
-            backend.queue().write_buffer(kv_v, 0, bytemuck::cast_slice(&gpu_v));
+            backend
+                .queue()
+                .write_buffer(kv_k, 0, bytemuck::cast_slice(&gpu_k));
+            backend
+                .queue()
+                .write_buffer(kv_v, 0, bytemuck::cast_slice(&gpu_v));
         }
         Ok(())
     }
@@ -593,7 +600,7 @@ impl LlamaRunner {
         &mut self,
         token_id: u32,
         pos: usize,
-        layer_tel: &mut Vec<LayerTelemetry>,
+        layer_tel: &mut [LayerTelemetry],
     ) -> Result<Vec<f32>, Error> {
         // Non-budgeted decode: clear any stale partial state
         self.partial_decode = None;
@@ -612,7 +619,7 @@ impl LlamaRunner {
         &mut self,
         token_id: u32,
         pos: usize,
-        layer_tel: &mut Vec<LayerTelemetry>,
+        layer_tel: &mut [LayerTelemetry],
     ) -> Result<Vec<f32>, Error> {
         if self.frame_budget_ms <= 0.0 {
             // No budget → run to completion like decode_step
@@ -635,7 +642,7 @@ impl LlamaRunner {
         &mut self,
         token_id: u32,
         pos: usize,
-        layer_tel: &mut Vec<LayerTelemetry>,
+        layer_tel: &mut [LayerTelemetry],
     ) -> Result<Vec<f32>, Error> {
         self.forward_one(token_id, pos, layer_tel)
     }
@@ -968,7 +975,7 @@ impl LlamaRunner {
         &mut self,
         token_id: u32,
         pos: usize,
-        layer_tel: &mut Vec<LayerTelemetry>,
+        layer_tel: &mut [LayerTelemetry],
     ) -> Result<Vec<f32>, Error> {
         self.partial_decode = None;
         self.forward_one_internal(token_id, pos, layer_tel, false)
@@ -980,7 +987,7 @@ impl LlamaRunner {
         &mut self,
         token_id: u32,
         pos: usize,
-        layer_tel: &mut Vec<LayerTelemetry>,
+        layer_tel: &mut [LayerTelemetry],
     ) -> Result<Vec<f32>, Error> {
         self.forward_one_internal(token_id, pos, layer_tel, true)
     }
@@ -990,7 +997,7 @@ impl LlamaRunner {
         &mut self,
         token_id: u32,
         pos: usize,
-        layer_tel: &mut Vec<LayerTelemetry>,
+        layer_tel: &mut [LayerTelemetry],
         budgeted: bool,
     ) -> Result<Vec<f32>, Error> {
         let cfg = &self.cfg;
@@ -1091,9 +1098,16 @@ impl LlamaRunner {
                 if layer_idx == 0 {
                     let sx_sum: f32 = s.x.iter().map(|x| x.abs()).sum();
                     let sn_sum: f32 = s.normed.iter().map(|x| x.abs()).sum();
-                    trace!("[diag L0 CPU] s.x abs_sum={:.4} s.normed abs_sum={:.4}", sx_sum, sn_sum);
-                    trace!("[diag L0 CPU] s.x first3={:.6?} s.normed first3={:.6?}",
-                        &s.x[..3.min(s.x.len())], &s.normed[..3.min(s.normed.len())]);
+                    trace!(
+                        "[diag L0 CPU] s.x abs_sum={:.4} s.normed abs_sum={:.4}",
+                        sx_sum,
+                        sn_sum
+                    );
+                    trace!(
+                        "[diag L0 CPU] s.x first3={:.6?} s.normed first3={:.6?}",
+                        &s.x[..3.min(s.x.len())],
+                        &s.normed[..3.min(s.normed.len())]
+                    );
 
                     // Sanity check: create a tiny [3] f32 buffer and read it back
                     let sanity = backend.create_buffer_with_data(
@@ -1101,7 +1115,10 @@ impl LlamaRunner {
                         wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
                     );
                     let sanity_read: Vec<f32> = backend.read_buffer(&sanity, 12)?;
-                    trace!("[diag L0 sanity] create_buffer_with_data([1,2,3]) readback={:.6?}", &sanity_read);
+                    trace!(
+                        "[diag L0 sanity] create_buffer_with_data([1,2,3]) readback={:.6?}",
+                        &sanity_read
+                    );
                 }
 
                 // Upload:
@@ -1122,13 +1139,28 @@ impl LlamaRunner {
 
                 let mut enc = backend.create_encoder("qkv_matmul");
                 let q = backend.execute_matmul_buffers_with_encoder(
-                    &mut enc, &normed_buf, &gw.q_proj, 1, d_u, d_u,
+                    &mut enc,
+                    &normed_buf,
+                    &gw.q_proj,
+                    1,
+                    d_u,
+                    d_u,
                 )?;
                 let k = backend.execute_matmul_buffers_with_encoder(
-                    &mut enc, &normed_buf, &gw.k_proj, 1, kv_d_u, d_u,
+                    &mut enc,
+                    &normed_buf,
+                    &gw.k_proj,
+                    1,
+                    kv_d_u,
+                    d_u,
                 )?;
                 let v = backend.execute_matmul_buffers_with_encoder(
-                    &mut enc, &normed_buf, &gw.v_proj, 1, kv_d_u, d_u,
+                    &mut enc,
+                    &normed_buf,
+                    &gw.v_proj,
+                    1,
+                    kv_d_u,
+                    d_u,
                 )?;
                 backend.submit_encoder(enc);
 
@@ -1158,7 +1190,9 @@ impl LlamaRunner {
 
                 let attn_out = backend.create_device_buffer(
                     (d_u as u64) * 4,
-                    wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+                    wgpu::BufferUsages::STORAGE
+                        | wgpu::BufferUsages::COPY_DST
+                        | wgpu::BufferUsages::COPY_SRC,
                     "attn_out",
                 );
                 let mut enc_attn = backend.create_encoder("attn");
@@ -1182,27 +1216,63 @@ impl LlamaRunner {
                     // Diagnostic: read back input and weights to find where zeros originate
                     let normed_cpu: Vec<f32> = backend.read_buffer(&normed_buf, cfg.d_model * 4)?;
                     let normed_sum: f32 = normed_cpu.iter().map(|x| x.abs()).sum();
-                    let normed_first3 = if normed_cpu.len() >= 3 { [normed_cpu[0], normed_cpu[1], normed_cpu[2]] } else { [0.0; 3] };
-                    trace!("[diag L0] normed_buf abs_sum={:.4} first3={:.6?}", normed_sum, normed_first3);
-                    trace!("[diag L0] normed_buf min={:.6} max={:.6}",
+                    let normed_first3 = if normed_cpu.len() >= 3 {
+                        [normed_cpu[0], normed_cpu[1], normed_cpu[2]]
+                    } else {
+                        [0.0; 3]
+                    };
+                    trace!(
+                        "[diag L0] normed_buf abs_sum={:.4} first3={:.6?}",
+                        normed_sum,
+                        normed_first3
+                    );
+                    trace!(
+                        "[diag L0] normed_buf min={:.6} max={:.6}",
                         normed_cpu.iter().cloned().fold(f32::INFINITY, f32::min),
-                        normed_cpu.iter().cloned().fold(f32::NEG_INFINITY, f32::max));
-                    trace!("[diag L0] d_u={} n_h_u={} head_dim_u={} kv_d_u={}", d_u, n_h_u, head_dim_u, kv_d_u);
+                        normed_cpu.iter().cloned().fold(f32::NEG_INFINITY, f32::max)
+                    );
+                    trace!(
+                        "[diag L0] d_u={} n_h_u={} head_dim_u={} kv_d_u={}",
+                        d_u,
+                        n_h_u,
+                        head_dim_u,
+                        kv_d_u
+                    );
 
-                    let q_cpu: Vec<f32> = backend.read_buffer(&q, (n_h_u * head_dim_u) as usize * 4)?;
-                    let k_cpu: Vec<f32> = backend.read_buffer(&k, (n_kv_u * head_dim_u) as usize * 4)?;
-                    let v_cpu: Vec<f32> = backend.read_buffer(&v, (n_kv_u * head_dim_u) as usize * 4)?;
+                    let q_cpu: Vec<f32> =
+                        backend.read_buffer(&q, (n_h_u * head_dim_u) as usize * 4)?;
+                    let k_cpu: Vec<f32> =
+                        backend.read_buffer(&k, (n_kv_u * head_dim_u) as usize * 4)?;
+                    let v_cpu: Vec<f32> =
+                        backend.read_buffer(&v, (n_kv_u * head_dim_u) as usize * 4)?;
                     let qnan: usize = q_cpu.iter().filter(|x| x.is_nan()).count();
                     let knan: usize = k_cpu.iter().filter(|x| x.is_nan()).count();
                     let vnan: usize = v_cpu.iter().filter(|x| x.is_nan()).count();
-                    trace!("[diag L0] Q nan={} sum={:.4}", qnan, q_cpu.iter().map(|x| x.abs()).sum::<f32>());
-                    trace!("[diag L0] K nan={} sum={:.4}", knan, k_cpu.iter().map(|x| x.abs()).sum::<f32>());
-                    trace!("[diag L0] V nan={} sum={:.4}", vnan, v_cpu.iter().map(|x| x.abs()).sum::<f32>());
+                    trace!(
+                        "[diag L0] Q nan={} sum={:.4}",
+                        qnan,
+                        q_cpu.iter().map(|x| x.abs()).sum::<f32>()
+                    );
+                    trace!(
+                        "[diag L0] K nan={} sum={:.4}",
+                        knan,
+                        k_cpu.iter().map(|x| x.abs()).sum::<f32>()
+                    );
+                    trace!(
+                        "[diag L0] V nan={} sum={:.4}",
+                        vnan,
+                        v_cpu.iter().map(|x| x.abs()).sum::<f32>()
+                    );
 
                     let ar: Vec<f32> = backend.read_buffer(&attn_out, cfg.d_model * 4)?;
                     let asum: f32 = ar.iter().map(|v| v.abs()).sum();
                     let anan: usize = ar.iter().filter(|v| v.is_nan()).count();
-                    trace!("[diag L0] attn_out abs_sum={:.4} nan={} first3={:.6?}", asum, anan, &ar[..3]);
+                    trace!(
+                        "[diag L0] attn_out abs_sum={:.4} nan={} first3={:.6?}",
+                        asum,
+                        anan,
+                        &ar[..3]
+                    );
                 }
 
                 let mut enc3 = backend.create_encoder("output_proj");
@@ -1272,15 +1342,24 @@ impl LlamaRunner {
                 if layer_idx == 0 {
                     let xnew_cpu: Vec<f32> = backend.read_buffer(&x_new, cfg.d_model * 4)?;
                     let silu_cpu: Vec<f32> = backend.read_buffer(&silu_out, d_ff_u as usize * 4)?;
-                    trace!("[diag L0] x_new (residual+attn) nan={} sum={:.4}",
+                    trace!(
+                        "[diag L0] x_new (residual+attn) nan={} sum={:.4}",
                         xnew_cpu.iter().filter(|x| x.is_nan()).count(),
-                        xnew_cpu.iter().map(|x| x.abs()).sum::<f32>());
-                    trace!("[diag L0] silu_out nan={} sum={:.4}",
+                        xnew_cpu.iter().map(|x| x.abs()).sum::<f32>()
+                    );
+                    trace!(
+                        "[diag L0] silu_out nan={} sum={:.4}",
                         silu_cpu.iter().filter(|x| x.is_nan()).count(),
-                        silu_cpu.iter().map(|x| x.abs()).sum::<f32>());
+                        silu_cpu.iter().map(|x| x.abs()).sum::<f32>()
+                    );
                     let fsum: f32 = final_cpu.iter().map(|v| v.abs()).sum();
                     let fnan: usize = final_cpu.iter().filter(|v| v.is_nan()).count();
-                    trace!("[diag L0] x_final abs_sum={:.4} nan={} first3={:.6?}", fsum, fnan, &final_cpu[..3]);
+                    trace!(
+                        "[diag L0] x_final abs_sum={:.4} nan={} first3={:.6?}",
+                        fsum,
+                        fnan,
+                        &final_cpu[..3]
+                    );
                 }
                 s.x.copy_from_slice(&final_cpu);
             } else {
@@ -1742,17 +1821,17 @@ pub fn sample(
 }
 
 /// Debug helper: return the top-k token indices and logit values.
-    fn top_k_indices(logits: &[f32], k: usize) -> Vec<(u32, f32)> {
-        let mut indexed: Vec<(usize, &f32)> = logits.iter().enumerate().collect();
-        indexed.sort_unstable_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
-        indexed
-            .iter()
-            .take(k)
-            .map(|(i, v)| (*i as u32, **v))
-            .collect()
-    }
+fn top_k_indices(logits: &[f32], k: usize) -> Vec<(u32, f32)> {
+    let mut indexed: Vec<(usize, &f32)> = logits.iter().enumerate().collect();
+    indexed.sort_unstable_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
+    indexed
+        .iter()
+        .take(k)
+        .map(|(i, v)| (*i as u32, **v))
+        .collect()
+}
 
-    /// Fast xorshift PRNG for sampling (no external rand crate dependency).
+/// Fast xorshift PRNG for sampling (no external rand crate dependency).
 fn fast_rand_f32() -> f32 {
     use std::sync::atomic::{AtomicU64, Ordering};
     static STATE: AtomicU64 = AtomicU64::new(0x123456789ABCDEF);
@@ -1770,7 +1849,7 @@ fn fast_rand_f32() -> f32 {
 pub fn estimate_model_bytes_from_gguf(gguf: &GGUFModel) -> (usize, f64) {
     let mut total = 0usize;
 
-    for (_name, tensor) in &gguf.tensors {
+    for tensor in gguf.tensors.values() {
         total += tensor.data.len();
     }
 
@@ -1837,11 +1916,17 @@ mod tests {
                 | wgpu::BufferUsages::STORAGE,
             "test_buffer",
         );
-        backend.queue().write_buffer(&buf, 0, bytemuck::cast_slice(&data));
+        backend
+            .queue()
+            .write_buffer(&buf, 0, bytemuck::cast_slice(&data));
         let flush_enc = backend.create_encoder("flush");
         backend.submit_encoder(flush_enc);
         let readback = backend.read_buffer(&buf, data.len() * 4).unwrap();
-        assert_eq!(readback, data, "Buffer upload round-trip failed, got {:?}", readback);
+        assert_eq!(
+            readback, data,
+            "Buffer upload round-trip failed, got {:?}",
+            readback
+        );
     }
 
     #[test]
@@ -1945,10 +2030,15 @@ mod tests {
             .unwrap();
 
         let gpu_nan: usize = logits_decode_gpu.iter().map(|&x| x.is_nan() as usize).sum();
-        let gpu_finite: usize = logits_decode_gpu.iter().map(|&x| x.is_finite() as usize).sum();
+        let gpu_finite: usize = logits_decode_gpu
+            .iter()
+            .map(|&x| x.is_finite() as usize)
+            .sum();
         info!(
             "[test] GPU decode logits: NaN={}, finite={}, first5={:?}",
-            gpu_nan, gpu_finite, &logits_decode_gpu[..5.min(logits_decode_gpu.len())]
+            gpu_nan,
+            gpu_finite,
+            &logits_decode_gpu[..5.min(logits_decode_gpu.len())]
         );
 
         if gpu_finite == 0 {
@@ -1958,9 +2048,7 @@ mod tests {
         let sim_decode = cosine_sim(&logits_decode_gpu, &logits_decode_cpu);
         info!(
             "[test] GPU ({}/{}) vs CPU decode cosine similarity = {:.4}",
-            num_gpu,
-            runner_gpu.cfg.num_layers,
-            sim_decode,
+            num_gpu, runner_gpu.cfg.num_layers, sim_decode,
         );
 
         // Numerical differences between GPU (Metal) and CPU (LLVM) f32 arithmetic

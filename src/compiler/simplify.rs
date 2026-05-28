@@ -156,20 +156,20 @@ fn try_simplify_node(graph: &Graph, node_idx: petgraph::graph::NodeIndex, op: &O
                     .expect("graph lock poisoned reading neg inner op")
                     .dag[input]
                     .op;
-                    if matches!(inner_op, Op::Neg) {
-                        if let Ok(inner_input) = get_unary_input(
-                            &graph
-                                .inner
-                                .read()
-                                .expect("graph lock poisoned reading neg inner input")
-                                .dag,
-                            input,
-                        ) {
-                            if let Some(t) = tensor_from(graph, inner_input) {
-                                return Some(Op::Input(t));
-                            }
+                if matches!(inner_op, Op::Neg) {
+                    if let Ok(inner_input) = get_unary_input(
+                        &graph
+                            .inner
+                            .read()
+                            .expect("graph lock poisoned reading neg inner input")
+                            .dag,
+                        input,
+                    ) {
+                        if let Some(t) = tensor_from(graph, inner_input) {
+                            return Some(Op::Input(t));
                         }
                     }
+                }
             }
             None
         }

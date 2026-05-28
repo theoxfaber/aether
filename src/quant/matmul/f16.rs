@@ -1,6 +1,13 @@
 use rayon::prelude::*;
 
-pub(crate) fn matmul_f16_scalar(a: &[f32], b_bytes: &[u8], m: usize, n: usize, k: usize, c: &mut [f32]) {
+pub(crate) fn matmul_f16_scalar(
+    a: &[f32],
+    b_bytes: &[u8],
+    m: usize,
+    n: usize,
+    k: usize,
+    c: &mut [f32],
+) {
     if m > 1 {
         return matmul_f16_batched_scalar(a, b_bytes, m, n, k, c);
     }

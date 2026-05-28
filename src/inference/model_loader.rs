@@ -307,7 +307,11 @@ impl LlamaConfig {
 
 pub(crate) type TensorMap = HashMap<String, crate::loader::gguf::GGUFTensor>;
 
-pub(crate) fn load_f32_norm(tensors: &TensorMap, name: &str, expected_len: usize) -> Result<Vec<f32>, Error> {
+pub(crate) fn load_f32_norm(
+    tensors: &TensorMap,
+    name: &str,
+    expected_len: usize,
+) -> Result<Vec<f32>, Error> {
     let t = tensors
         .get(name)
         .ok_or_else(|| Error::ExecutionError(format!("Missing norm tensor: {}", name)))?;
@@ -379,7 +383,11 @@ fn transpose_quantized_bytes(
     Ok(SharedBytes::new_owned(requantized))
 }
 
-pub(crate) fn load_f32_tensor(tensors: &TensorMap, name: &str, cfg: &LlamaConfig) -> Result<Vec<f32>, Error> {
+pub(crate) fn load_f32_tensor(
+    tensors: &TensorMap,
+    name: &str,
+    cfg: &LlamaConfig,
+) -> Result<Vec<f32>, Error> {
     let t = tensors
         .get(name)
         .ok_or_else(|| Error::ExecutionError(format!("Missing tensor: {}", name)))?;

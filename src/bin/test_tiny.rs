@@ -28,7 +28,7 @@ fn main() -> Result<(), Error> {
 
     let mx = argmax(&last_logits) as u32;
     let mut top: Vec<_> = last_logits.iter().enumerate().collect();
-    top.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    top.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
     eprintln!(
         "Prefill done. argmax={} ('{}')",
         mx,

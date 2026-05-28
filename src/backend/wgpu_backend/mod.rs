@@ -261,12 +261,16 @@ pub mod wgpu_backend_mod {
         /// Run a closure within a WGPU error scope, returning any errors
         /// instead of panicking.  Used during init to gracefully fall back to
         /// CPU when the GPU path is unavailable.
-        pub fn try_init_with<T>(
-            f: impl FnOnce(&Self) -> Result<T, Error>,
-        ) -> Result<T, Error> {
+        pub fn try_init_with<T>(f: impl FnOnce(&Self) -> Result<T, Error>) -> Result<T, Error> {
             let backend = Self::get_or_init()?;
-            backend.inner.device.push_error_scope(wgpu::ErrorFilter::Validation);
-            backend.inner.device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+            backend
+                .inner
+                .device
+                .push_error_scope(wgpu::ErrorFilter::Validation);
+            backend
+                .inner
+                .device
+                .push_error_scope(wgpu::ErrorFilter::OutOfMemory);
             let result = f(&backend);
             let oom = futures::executor::block_on(backend.inner.device.pop_error_scope());
             let val = futures::executor::block_on(backend.inner.device.pop_error_scope());
@@ -445,10 +449,13 @@ pub mod wgpu_backend_mod {
                 source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(MATMUL_ADD_SHADER_SRC)),
             });
 
-            let matmul_add_relu_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("MatMul Add ReLU Shader Module"),
-                source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(MATMUL_ADD_RELU_SHADER_SRC)),
-            });
+            let matmul_add_relu_module =
+                device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("MatMul Add ReLU Shader Module"),
+                    source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(
+                        MATMUL_ADD_RELU_SHADER_SRC,
+                    )),
+                });
 
             let batched_matmul_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("BatchedMatMul Shader Module"),
@@ -587,50 +594,62 @@ pub mod wgpu_backend_mod {
             });
             let dequant_q4_k_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Dequant Q4_K Shader Module"),
-                source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(DEQUANT_Q4_K_SHADER_SRC)),
+                source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(
+                    DEQUANT_Q4_K_SHADER_SRC,
+                )),
             });
             let dequant_q5_k_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Dequant Q5_K Shader Module"),
-                source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(DEQUANT_Q5_K_SHADER_SRC)),
+                source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(
+                    DEQUANT_Q5_K_SHADER_SRC,
+                )),
             });
             let dequant_q6_k_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Dequant Q6_K Shader Module"),
-                source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(DEQUANT_Q6_K_SHADER_SRC)),
+                source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(
+                    DEQUANT_Q6_K_SHADER_SRC,
+                )),
             });
             let dequant_q8_0_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Dequant Q8_0 Shader Module"),
-                source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(DEQUANT_Q8_0_SHADER_SRC)),
+                source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(
+                    DEQUANT_Q8_0_SHADER_SRC,
+                )),
             });
 
-            let dequant_q4_k_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Dequant Q4_K Compute Pipeline"),
-                layout: None,
-                module: &dequant_q4_k_module,
-                entry_point: "main",
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            });
-            let dequant_q5_k_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Dequant Q5_K Compute Pipeline"),
-                layout: None,
-                module: &dequant_q5_k_module,
-                entry_point: "main",
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            });
-            let dequant_q6_k_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Dequant Q6_K Compute Pipeline"),
-                layout: None,
-                module: &dequant_q6_k_module,
-                entry_point: "main",
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            });
-            let dequant_q8_0_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Dequant Q8_0 Compute Pipeline"),
-                layout: None,
-                module: &dequant_q8_0_module,
-                entry_point: "main",
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            });
-            
+            let dequant_q4_k_pipeline =
+                device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("Dequant Q4_K Compute Pipeline"),
+                    layout: None,
+                    module: &dequant_q4_k_module,
+                    entry_point: "main",
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                });
+            let dequant_q5_k_pipeline =
+                device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("Dequant Q5_K Compute Pipeline"),
+                    layout: None,
+                    module: &dequant_q5_k_module,
+                    entry_point: "main",
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                });
+            let dequant_q6_k_pipeline =
+                device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("Dequant Q6_K Compute Pipeline"),
+                    layout: None,
+                    module: &dequant_q6_k_module,
+                    entry_point: "main",
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                });
+            let dequant_q8_0_pipeline =
+                device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("Dequant Q8_0 Compute Pipeline"),
+                    layout: None,
+                    module: &dequant_q8_0_module,
+                    entry_point: "main",
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                });
+
             let max_pool_grad_pipeline =
                 device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                     label: Some("MaxPool2dGrad Compute Pipeline"),
@@ -1750,7 +1769,7 @@ pub mod wgpu_backend_mod {
                 });
                 pass.set_pipeline(&self.inner.matmul_pipeline);
                 pass.set_bind_group(0, &bind_group, &[]);
-                pass.dispatch_workgroups((n + 15) / 16, (m + 15) / 16, 1);
+                pass.dispatch_workgroups(n.div_ceil(16), m.div_ceil(16), 1);
             }
             self.inner.queue.submit(Some(encoder.finish()));
         }
@@ -1816,7 +1835,7 @@ pub mod wgpu_backend_mod {
                 });
                 pass.set_pipeline(&self.inner.matmul_relu_pipeline);
                 pass.set_bind_group(0, &bind_group, &[]);
-                pass.dispatch_workgroups((n + 15) / 16, (m + 15) / 16, 1);
+                pass.dispatch_workgroups(n.div_ceil(16), m.div_ceil(16), 1);
             }
             self.inner.queue.submit(Some(encoder.finish()));
         }
@@ -1966,19 +1985,24 @@ pub mod wgpu_backend_mod {
             let output_size = num_elements * 4;
 
             let mut padded_bytes = quant_bytes.to_vec();
-            while padded_bytes.len() % 4 != 0 {
+            while !padded_bytes.len().is_multiple_of(4) {
                 padded_bytes.push(0);
             }
-            let input_buf = self.inner.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Quantized Input Buffer"),
-                contents: &padded_bytes,
-                usage: wgpu::BufferUsages::STORAGE,
-            });
+            let input_buf =
+                self.inner
+                    .device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Quantized Input Buffer"),
+                        contents: &padded_bytes,
+                        usage: wgpu::BufferUsages::STORAGE,
+                    });
 
             let output_buf = self.inner.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("Dequantized Output Buffer"),
                 size: output_size as u64,
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+                usage: wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_SRC
+                    | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
 
@@ -1987,27 +2011,38 @@ pub mod wgpu_backend_mod {
                 crate::loader::gguf::GGUFDtype::Q5_K => &self.inner.dequant_q5_k_pipeline,
                 crate::loader::gguf::GGUFDtype::Q6_K => &self.inner.dequant_q6_k_pipeline,
                 crate::loader::gguf::GGUFDtype::Q8_0 => &self.inner.dequant_q8_0_pipeline,
-                _ => return Err(Error::ExecutionError(format!("Unsupported GPU dequantization dtype: {:?}", dtype))),
+                _ => {
+                    return Err(Error::ExecutionError(format!(
+                        "Unsupported GPU dequantization dtype: {:?}",
+                        dtype
+                    )))
+                }
             };
 
-            let bind_group = self.inner.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Dequant Bind Group"),
-                layout: &pipeline.get_bind_group_layout(0),
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: input_buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: output_buf.as_entire_binding(),
-                    },
-                ],
-            });
+            let bind_group = self
+                .inner
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("Dequant Bind Group"),
+                    layout: &pipeline.get_bind_group_layout(0),
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: input_buf.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: output_buf.as_entire_binding(),
+                        },
+                    ],
+                });
 
-            let mut encoder = self.inner.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Dequant Encoder"),
-            });
+            let mut encoder =
+                self.inner
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("Dequant Encoder"),
+                    });
             {
                 let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: Some("Dequant Compute Pass"),
@@ -3742,7 +3777,11 @@ pub mod wgpu_backend_mod {
                 cols: u32,
                 eps: f32,
             }
-            let params = RMSNormParams { rows, cols, eps: epsilon };
+            let params = RMSNormParams {
+                rows,
+                cols,
+                eps: epsilon,
+            };
             let params_buf =
                 self.inner
                     .device
@@ -4002,7 +4041,11 @@ pub mod wgpu_backend_mod {
                 cols: u32,
                 eps: f32,
             }
-            let params = LayerNormParams { rows, cols, eps: epsilon };
+            let params = LayerNormParams {
+                rows,
+                cols,
+                eps: epsilon,
+            };
             let params_buf =
                 self.inner
                     .device
@@ -4154,13 +4197,30 @@ pub mod wgpu_backend_mod {
             #[repr(C)]
             #[derive(Copy, Clone, Debug, bytemuck::Zeroable, bytemuck::Pod)]
             struct Conv2dParams {
-                n: u32, o: u32, c: u32, h_in: u32, w_in: u32,
-                kh: u32, kw: u32, h_out: u32, w_out: u32,
-                stride: u32, padding: u32,
+                n: u32,
+                o: u32,
+                c: u32,
+                h_in: u32,
+                w_in: u32,
+                kh: u32,
+                kw: u32,
+                h_out: u32,
+                w_out: u32,
+                stride: u32,
+                padding: u32,
             }
             let params = Conv2dParams {
-                n, o, c, h_in, w_in, kh, kw, h_out, w_out,
-                stride: stride as u32, padding: padding as u32,
+                n,
+                o,
+                c,
+                h_in,
+                w_in,
+                kh,
+                kw,
+                h_out,
+                w_out,
+                stride: stride as u32,
+                padding: padding as u32,
             };
             let params_buf =
                 self.inner
@@ -4217,7 +4277,7 @@ pub mod wgpu_backend_mod {
                 });
                 compute_pass.set_pipeline(&pipeline);
                 compute_pass.set_bind_group(0, &bind_group, &[]);
-                let total = (n * o * h_out * w_out) as u32;
+                let total = n * o * h_out * w_out ;
                 let w_x = total.div_ceil(256);
                 compute_pass.dispatch_workgroups(w_x, 1, 1);
             }
@@ -4399,8 +4459,12 @@ pub mod wgpu_backend_mod {
                     );
                     let w_buf =
                         self.create_buffer_with_data(inputs[1].data(), wgpu::BufferUsages::STORAGE);
-                    let out_buf =
-                        self.execute_rmsnorm_buffers(&x_buf, &w_buf, inputs[0].shape().clone(), *epsilon)?;
+                    let out_buf = self.execute_rmsnorm_buffers(
+                        &x_buf,
+                        &w_buf,
+                        inputs[0].shape().clone(),
+                        *epsilon,
+                    )?;
                     let size_bytes = inputs[0].shape().num_elements() * std::mem::size_of::<f32>();
                     let out_data = self.read_buffer(&out_buf, size_bytes)?;
                     Ok(Tensor::new(out_data, inputs[0].shape().clone()))
@@ -4530,6 +4594,5 @@ pub mod wgpu_backend_mod {
             self.execute_matmul_add_relu_gpu(a, b, bias)
         }
     }
-
 }
 pub use wgpu_backend_mod::WgpuBackend;

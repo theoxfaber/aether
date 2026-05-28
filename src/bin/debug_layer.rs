@@ -55,9 +55,9 @@ fn main() {
     let s_k = vec![n_kv_heads * head_dim, d_model];
     let s_v = vec![n_kv_heads * head_dim, d_model];
     let s_o = vec![d_model, d_model];
-    let s_gate = vec![d_ff, d_model];
-    let s_up = vec![d_ff, d_model];
-    let s_down = vec![d_model, d_ff];
+    let s_gate = [d_ff, d_model];
+    let s_up = [d_ff, d_model];
+    let s_down = [d_model, d_ff];
 
     // ── 1. RMSNorm ──
     let attn_norm = get("blk.0.attn_norm.weight");

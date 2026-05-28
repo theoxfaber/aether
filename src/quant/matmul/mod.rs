@@ -1,13 +1,13 @@
 #![allow(unused_imports)]
 
 mod common;
+mod f16;
 mod q2_k;
 mod q3_k;
 mod q4_k;
 mod q5_k;
 mod q6_k;
 mod q8_0;
-mod f16;
 
 #[cfg(target_arch = "aarch64")]
 pub(crate) mod neon;
@@ -22,8 +22,8 @@ mod tests;
 pub use avx2_dispatch::{matmul_q4_k, matmul_q6_k, matmul_q8_0};
 
 pub use dispatch::{
-    add_bias, matmul_f16, matmul_f32, matmul_q2_k, matmul_q3_k, matmul_q5_k,
-    quantized_matmul_impl, requantize,
+    add_bias, matmul_f16, matmul_f32, matmul_q2_k, matmul_q3_k, matmul_q5_k, quantized_matmul_impl,
+    requantize,
 };
 
 #[cfg(test)]

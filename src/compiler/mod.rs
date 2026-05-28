@@ -69,10 +69,9 @@ impl GraphCompiler {
 /// This gives ~20-40% throughput improvement on CPU matmul hot loops.
 fn run_layout_optimize_pass(graph: &Graph) -> Result<(), Error> {
     let dag_nodes: Vec<_> = {
-        let inner = graph
-            .inner
-            .read()
-            .map_err(|_| Error::ExecutionError("graph lock poisoned in layout optimize pass".into()))?;
+        let inner = graph.inner.read().map_err(|_| {
+            Error::ExecutionError("graph lock poisoned in layout optimize pass".into())
+        })?;
         inner.dag.node_indices().collect()
     };
 
@@ -87,18 +86,16 @@ fn run_layout_optimize_pass(graph: &Graph) -> Result<(), Error> {
 
         if let Op::MatMul = op {
             let inputs = {
-                let inner = graph
-                    .inner
-                    .read()
-                    .map_err(|_| Error::ExecutionError("graph lock poisoned reading MatMul inputs".into()))?;
+                let inner = graph.inner.read().map_err(|_| {
+                    Error::ExecutionError("graph lock poisoned reading MatMul inputs".into())
+                })?;
                 crate::graph::graph_mod::get_binary_inputs(&inner.dag, node_idx).ok()
             };
 
             if let Some((_lhs_node, rhs_node)) = inputs {
-                let mut inner = graph
-                    .inner
-                    .write()
-                    .map_err(|_| Error::ExecutionError("graph lock poisoned writing MatMul weight".into()))?;
+                let mut inner = graph.inner.write().map_err(|_| {
+                    Error::ExecutionError("graph lock poisoned writing MatMul weight".into())
+                })?;
                 let node = &mut inner.dag[rhs_node];
                 if let Op::Input(ref mut tensor) = node.op {
                     let shape = tensor.shape().dims().to_vec();
@@ -277,13 +274,15 @@ mod tests {
         let a = graph.tensor(vec![2.0, 3.0, 4.0], Shape::new(vec![3]));
         let b = graph.tensor(vec![5.0, 6.0, 7.0], Shape::new(vec![3]));
         // With identities: (a + 0) + (b * 1)
-        let t = a.add(graph.tensor(vec![0.0, 0.0, 0.0], Shape::new(vec![3])))
+        let t = a
+            .add(graph.tensor(vec![0.0, 0.0, 0.0], Shape::new(vec![3])))
             .add(b.mul(graph.tensor(vec![1.0], Shape::new(vec![1]))));
         let expected = t.run(Device::Cpu).unwrap();
         graph.compile().unwrap();
         let a2 = graph.tensor(vec![2.0, 3.0, 4.0], Shape::new(vec![3]));
         let b2 = graph.tensor(vec![5.0, 6.0, 7.0], Shape::new(vec![3]));
-        let t2 = a2.add(graph.tensor(vec![0.0, 0.0, 0.0], Shape::new(vec![3])))
+        let t2 = a2
+            .add(graph.tensor(vec![0.0, 0.0, 0.0], Shape::new(vec![3])))
             .add(b2.mul(graph.tensor(vec![1.0], Shape::new(vec![1]))));
         let actual = t2.run(Device::Cpu).unwrap();
         let e = expected.data();

@@ -37,6 +37,12 @@
 
 #![deny(unsafe_code)]
 #![cfg_attr(test, allow(dead_code))]
+#![allow(
+    clippy::too_many_arguments,
+    clippy::not_unsafe_ptr_arg_deref,
+    clippy::needless_range_loop,
+    clippy::manual_clamp,
+)]
 
 use thiserror::Error;
 

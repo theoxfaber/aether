@@ -54,15 +54,15 @@ fn main() {
             let compute = |seq| {
                 let graph = Graph::new();
                 let q = graph.tensor(
-                    vec![1.0; 1 * seq * d_model],
+                    vec![1.0; seq * d_model],
                     Shape::new(vec![1, seq, d_model]),
                 );
                 let k = graph.tensor(
-                    vec![1.0; 1 * seq * d_model],
+                    vec![1.0; seq * d_model],
                     Shape::new(vec![1, seq, d_model]),
                 );
                 let v = graph.tensor(
-                    vec![1.0; 1 * seq * d_model],
+                    vec![1.0; seq * d_model],
                     Shape::new(vec![1, seq, d_model]),
                 );
                 attn_fn(q, k, v)

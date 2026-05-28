@@ -33,8 +33,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::{Mutex as TokioMutex, Semaphore};
 use tracing::{error, info, warn};
 
-use aether::inference::runner::{sample, LoadOptions, LlamaRunner};
-
+use aether::inference::runner::{sample, LlamaRunner, LoadOptions};
 
 // ── CLI ────────────────────────────────────────────────────────────────────────
 
@@ -185,9 +184,15 @@ struct HealthResponse {
     ready: bool,
 }
 
-fn default_temperature() -> f32 { 0.7 }
-fn default_top_p() -> f32 { 0.9 }
-fn default_repetition_penalty() -> f32 { 1.0 }
+fn default_temperature() -> f32 {
+    0.7
+}
+fn default_top_p() -> f32 {
+    0.9
+}
+fn default_repetition_penalty() -> f32 {
+    1.0
+}
 
 // ─── Shared state ─────────────────────────────────────────────────────────────
 
@@ -228,7 +233,10 @@ struct RateLimiter {
 
 impl RateLimiter {
     fn new(max_per_min: u32) -> Self {
-        Self { max_per_min, history: std::sync::Mutex::new(Vec::new()) }
+        Self {
+            max_per_min,
+            history: std::sync::Mutex::new(Vec::new()),
+        }
     }
 
     fn check(&self) -> bool {
@@ -258,7 +266,10 @@ async fn main() {
     let args = Args::parse();
 
     if !Path::new(&args.model).exists() {
-        error!("Model file not found: {} (set AETHER_MODEL_PATH or --model)", args.model);
+        error!(
+            "Model file not found: {} (set AETHER_MODEL_PATH or --model)",
+            args.model
+        );
         std::process::exit(1);
     }
 
@@ -270,7 +281,9 @@ async fn main() {
     }
 
     info!("Loading model from {}...", args.model);
-    let load_opts = LoadOptions { cpu_only: args.cpu_only };
+    let load_opts = LoadOptions {
+        cpu_only: args.cpu_only,
+    };
     let runner = match LlamaRunner::from_gguf_with_options(&args.model, load_opts) {
         Ok(r) => r,
         Err(e) => {
@@ -312,8 +325,14 @@ async fn main() {
     // ── API routes (require auth) ──────────────────────────────────────────
     let api = Router::new()
         .route("/v1/models", get(handle_models))
-        .route("/v1/chat/completions", post(handle_chat_completions).options(handle_options))
-        .route("/v1/completions", post(handle_completions).options(handle_options))
+        .route(
+            "/v1/chat/completions",
+            post(handle_chat_completions).options(handle_options),
+        )
+        .route(
+            "/v1/completions",
+            post(handle_completions).options(handle_options),
+        )
         .route_layer(middleware::from_fn_with_state(
             Arc::clone(&state),
             require_api_key,
@@ -345,7 +364,10 @@ async fn main() {
         }
     };
 
-    info!("Aether server listening on http://{} | model={} | max_tokens={} | max_concurrency={}", addr, model_name, args.max_tokens, args.max_concurrency);
+    info!(
+        "Aether server listening on http://{} | model={} | max_tokens={} | max_concurrency={}",
+        addr, model_name, args.max_tokens, args.max_concurrency
+    );
     if let Some(ref key) = args.api_key {
         info!("API key auth enabled on /v1/* (key length={})", key.len());
     } else {
@@ -375,10 +397,7 @@ async fn main() {
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
 
-async fn x_request_id_middleware(
-    req: Request,
-    next: Next,
-) -> Response {
+async fn x_request_id_middleware(req: Request, next: Next) -> Response {
     let id = fast_rand_id();
     let mut resp = next.run(req).await;
     resp.headers_mut().insert(
@@ -457,9 +476,18 @@ fn api_error(status: StatusCode, error_type: &str, message: &str) -> Response {
 
 fn cors_headers() -> HeaderMap {
     let mut h = HeaderMap::new();
-    h.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
-    h.insert(header::ACCESS_CONTROL_ALLOW_METHODS, HeaderValue::from_static("GET, POST, OPTIONS"));
-    h.insert(header::ACCESS_CONTROL_ALLOW_HEADERS, HeaderValue::from_static("content-type, authorization"));
+    h.insert(
+        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        HeaderValue::from_static("*"),
+    );
+    h.insert(
+        header::ACCESS_CONTROL_ALLOW_METHODS,
+        HeaderValue::from_static("GET, POST, OPTIONS"),
+    );
+    h.insert(
+        header::ACCESS_CONTROL_ALLOW_HEADERS,
+        HeaderValue::from_static("content-type, authorization"),
+    );
     h
 }
 
@@ -484,14 +512,21 @@ async fn handle_ready(State(state): State<Arc<ServerState>>) -> impl IntoRespons
     if state.ready.load(Ordering::Relaxed) {
         (StatusCode::OK, Json(serde_json::json!({ "ready": true })))
     } else {
-        (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({ "ready": false })))
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "ready": false })),
+        )
     }
 }
 
 async fn handle_metrics(State(state): State<Arc<ServerState>>) -> impl IntoResponse {
     let uptime = state.started_at.elapsed().as_secs_f64();
     let served = state.requests_served.load(Ordering::Relaxed);
-    let rate = if uptime > 0.0 { served as f64 / uptime } else { 0.0 };
+    let rate = if uptime > 0.0 {
+        served as f64 / uptime
+    } else {
+        0.0
+    };
     let body = format!(
         "\
 # HELP aether_uptime_seconds Server uptime
@@ -510,11 +545,18 @@ aether_model_info{{model=\"{name}\",cpu_only=\"{cpu}\"}} 1
         name = state.model_name,
         cpu = state.cpu_only,
     );
-    (StatusCode::OK, [(header::CONTENT_TYPE, "text/plain; charset=utf-8")], body)
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        body,
+    )
 }
 
 async fn handle_models(State(state): State<Arc<ServerState>>) -> impl IntoResponse {
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
     let resp = serde_json::json!({
         "object": "list",
         "data": [{
@@ -534,17 +576,31 @@ async fn handle_chat_completions(
     Json(req): Json<ChatCompletionRequest>,
 ) -> impl IntoResponse {
     if req.messages.is_empty() {
-        return api_error(StatusCode::BAD_REQUEST, "invalid_request_error", "messages must not be empty");
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            "messages must not be empty",
+        );
     }
 
-    let max_tokens = req.max_tokens.unwrap_or(state.max_tokens_cap).min(state.max_tokens_cap);
+    let max_tokens = req
+        .max_tokens
+        .unwrap_or(state.max_tokens_cap)
+        .min(state.max_tokens_cap);
     if max_tokens == 0 {
-        return api_error(StatusCode::BAD_REQUEST, "invalid_request_error", "max_tokens must be at least 1");
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            "max_tokens must be at least 1",
+        );
     }
 
     let prompt = format_messages(&req.messages);
     let chat_id = format!("chatcmpl-{}", fast_rand_id());
-    let created_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    let created_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
     let model_name = state.model_name.clone();
 
     if req.stream {
@@ -568,59 +624,119 @@ async fn handle_chat_completions(
 
             let last_logits = match runner.prefill(&token_ids) {
                 Ok(l) => l,
-                Err(e) => { let _ = tx.send(Err(e)).await; return; }
+                Err(e) => {
+                    let _ = tx.send(Err(e)).await;
+                    return;
+                }
             };
 
-            let mut next_token = sample(&last_logits, temperature, top_p, &prev_tokens, repetition_penalty);
+            let mut next_token = sample(
+                &last_logits,
+                temperature,
+                top_p,
+                &prev_tokens,
+                repetition_penalty,
+            );
             prev_tokens.push(next_token);
             let mut pos = prompt_len;
 
             let first_text = runner.tokenizer.decode_one(next_token);
-            if tx.send(Ok(first_text)).await.is_err() { return; }
+            if tx.send(Ok(first_text)).await.is_err() {
+                return;
+            }
 
             for _step in 0..max_tokens.saturating_sub(1) {
-                if next_token == runner.tokenizer.eos_id { break; }
-                if runner.kv.seq_len >= runner.kv.max_seq { break; }
+                if next_token == runner.tokenizer.eos_id {
+                    break;
+                }
+                if runner.kv.seq_len >= runner.kv.max_seq {
+                    break;
+                }
 
-                let mut layer_tel = vec![aether::inference::telemetry::LayerTelemetry::default(); runner.model.config.num_layers];
+                let mut layer_tel = vec![
+                    aether::inference::telemetry::LayerTelemetry::default();
+                    runner.model.config.num_layers
+                ];
                 let logits = match runner.decode_step(next_token, pos, &mut layer_tel) {
                     Ok(l) => l,
-                    Err(e) => { let _ = tx.send(Err(e)).await; return; }
+                    Err(e) => {
+                        let _ = tx.send(Err(e)).await;
+                        return;
+                    }
                 };
 
-                next_token = sample(&logits, temperature, top_p, &prev_tokens, repetition_penalty);
+                next_token = sample(
+                    &logits,
+                    temperature,
+                    top_p,
+                    &prev_tokens,
+                    repetition_penalty,
+                );
                 prev_tokens.push(next_token);
                 pos += 1;
 
                 let text = runner.tokenizer.decode_one(next_token);
-                if tx.send(Ok(text)).await.is_err() { return; }
+                if tx.send(Ok(text)).await.is_err() {
+                    return;
+                }
             }
 
             let stop_chunk = ChatCompletionChunk {
-                id: chat_id_clone.clone(), object: "chat.completion.chunk", created: created_time,
+                id: chat_id_clone.clone(),
+                object: "chat.completion.chunk",
+                created: created_time,
                 model: model_name_clone.clone(),
-                choices: vec![ChatChunkChoice { index: 0, delta: MessageDelta { role: None, content: None }, finish_reason: Some("stop".to_string()) }],
+                choices: vec![ChatChunkChoice {
+                    index: 0,
+                    delta: MessageDelta {
+                        role: None,
+                        content: None,
+                    },
+                    finish_reason: Some("stop".to_string()),
+                }],
             };
-            let _ = tx.send(Ok(serde_json::to_string(&stop_chunk).unwrap_or_default())).await;
+            let _ = tx
+                .send(Ok(serde_json::to_string(&stop_chunk).unwrap_or_default()))
+                .await;
             let _ = tx.send(Ok("[DONE]".to_string())).await;
         });
 
         let stream = ReceiverStream { rx }.map(move |res| match res {
-            Ok(data) if data == "[DONE]" => Ok::<Event, std::convert::Infallible>(Event::default().data("[DONE]")),
+            Ok(data) if data == "[DONE]" => {
+                Ok::<Event, std::convert::Infallible>(Event::default().data("[DONE]"))
+            }
             Ok(data) if data.starts_with('{') => Ok(Event::default().data(data)),
             Ok(text) => {
                 let chunk = ChatCompletionChunk {
-                    id: chat_id.clone(), object: "chat.completion.chunk", created: created_time,
+                    id: chat_id.clone(),
+                    object: "chat.completion.chunk",
+                    created: created_time,
                     model: model_name.clone(),
-                    choices: vec![ChatChunkChoice { index: 0, delta: MessageDelta { role: None, content: Some(text) }, finish_reason: None }],
+                    choices: vec![ChatChunkChoice {
+                        index: 0,
+                        delta: MessageDelta {
+                            role: None,
+                            content: Some(text),
+                        },
+                        finish_reason: None,
+                    }],
                 };
                 Ok(Event::default().data(serde_json::to_string(&chunk).unwrap_or_default()))
             }
             Err(e) => {
                 let chunk = ChatCompletionChunk {
-                    id: chat_id.clone(), object: "chat.completion.chunk", created: created_time,
+                    id: chat_id.clone(),
+                    object: "chat.completion.chunk",
+                    created: created_time,
                     model: model_name.clone(),
-                    choices: vec![ChatChunkChoice { index: 0, delta: MessageDelta { role: None, content: Some(format!("[Error: {}]", e)) }, finish_reason: Some("error".to_string()) }],
+                    choices: vec![ChatChunkChoice {
+                        index: 0,
+                        delta: MessageDelta {
+                            role: None,
+                            content: Some(format!("[Error: {}]", e)),
+                        },
+                        finish_reason: Some("error".to_string()),
+                    }],
                 };
                 Ok(Event::default().data(serde_json::to_string(&chunk).unwrap_or_default()))
             }
@@ -636,10 +752,20 @@ async fn handle_chat_completions(
             let token_ids = runner.tokenizer.encode(&prompt, true);
             let prompt_len = token_ids.len();
 
-            let generated_text = match runner.generate(&prompt, max_tokens, req.temperature, req.top_p, req.repetition_penalty) {
+            let generated_text = match runner.generate(
+                &prompt,
+                max_tokens,
+                req.temperature,
+                req.top_p,
+                req.repetition_penalty,
+            ) {
                 Ok(t) => t,
                 Err(e) => {
-                    return api_error(StatusCode::INTERNAL_SERVER_ERROR, "server_error", &format!("Generation failed: {}", e));
+                    return api_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "server_error",
+                        &format!("Generation failed: {}", e),
+                    );
                 }
             };
 
@@ -648,9 +774,23 @@ async fn handle_chat_completions(
         };
 
         let response = ChatCompletionResponse {
-            id: chat_id, object: "chat.completion", created: created_time, model: model_name,
-            choices: vec![ChatChoice { index: 0, message: Message { role: "assistant".to_string(), content: response_content }, finish_reason: Some("stop".to_string()) }],
-            usage: ChatUsage { prompt_tokens, completion_tokens, total_tokens: prompt_tokens + completion_tokens },
+            id: chat_id,
+            object: "chat.completion",
+            created: created_time,
+            model: model_name,
+            choices: vec![ChatChoice {
+                index: 0,
+                message: Message {
+                    role: "assistant".to_string(),
+                    content: response_content,
+                },
+                finish_reason: Some("stop".to_string()),
+            }],
+            usage: ChatUsage {
+                prompt_tokens,
+                completion_tokens,
+                total_tokens: prompt_tokens + completion_tokens,
+            },
         };
 
         (StatusCode::OK, cors_headers(), Json(response)).into_response()
@@ -663,13 +803,23 @@ async fn handle_completions(
     State(state): State<Arc<ServerState>>,
     Json(req): Json<CompletionRequest>,
 ) -> impl IntoResponse {
-    let max_tokens = req.max_tokens.unwrap_or(state.max_tokens_cap).min(state.max_tokens_cap);
+    let max_tokens = req
+        .max_tokens
+        .unwrap_or(state.max_tokens_cap)
+        .min(state.max_tokens_cap);
     if max_tokens == 0 {
-        return api_error(StatusCode::BAD_REQUEST, "invalid_request_error", "max_tokens must be at least 1");
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            "max_tokens must be at least 1",
+        );
     }
 
     let comp_id = format!("cmpl-{}", fast_rand_id());
-    let created_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    let created_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
     let model_name = state.model_name.clone();
 
     if req.stream {
@@ -692,38 +842,69 @@ async fn handle_completions(
 
             let last_logits = match runner.prefill(&token_ids) {
                 Ok(l) => l,
-                Err(e) => { let _ = tx.send(Err(e)).await; return; }
+                Err(e) => {
+                    let _ = tx.send(Err(e)).await;
+                    return;
+                }
             };
 
-            let mut next_token = sample(&last_logits, temperature, top_p, &prev_tokens, repetition_penalty);
+            let mut next_token = sample(
+                &last_logits,
+                temperature,
+                top_p,
+                &prev_tokens,
+                repetition_penalty,
+            );
             prev_tokens.push(next_token);
 
             let first_text = runner.tokenizer.decode_one(next_token);
-            if tx.send(Ok(first_text)).await.is_err() { return; }
+            if tx.send(Ok(first_text)).await.is_err() {
+                return;
+            }
 
             for _step in 0..max_tokens.saturating_sub(1) {
-                if next_token == runner.tokenizer.eos_id { break; }
-                if runner.kv.seq_len >= runner.kv.max_seq { break; }
+                if next_token == runner.tokenizer.eos_id {
+                    break;
+                }
+                if runner.kv.seq_len >= runner.kv.max_seq {
+                    break;
+                }
 
-                let mut layer_tel = vec![aether::inference::telemetry::LayerTelemetry::default(); runner.model.config.num_layers];
+                let mut layer_tel = vec![
+                    aether::inference::telemetry::LayerTelemetry::default();
+                    runner.model.config.num_layers
+                ];
                 let logits = match runner.decode_step(next_token, pos, &mut layer_tel) {
                     Ok(l) => l,
-                    Err(e) => { let _ = tx.send(Err(e)).await; return; }
+                    Err(e) => {
+                        let _ = tx.send(Err(e)).await;
+                        return;
+                    }
                 };
 
-                next_token = sample(&logits, temperature, top_p, &prev_tokens, repetition_penalty);
+                next_token = sample(
+                    &logits,
+                    temperature,
+                    top_p,
+                    &prev_tokens,
+                    repetition_penalty,
+                );
                 prev_tokens.push(next_token);
                 pos += 1;
 
                 let text = runner.tokenizer.decode_one(next_token);
-                if tx.send(Ok(text)).await.is_err() { return; }
+                if tx.send(Ok(text)).await.is_err() {
+                    return;
+                }
             }
 
             let _ = tx.send(Ok("[DONE]".to_string())).await;
         });
 
         let stream = ReceiverStream { rx }.map(move |res| match res {
-            Ok(data) if data == "[DONE]" => Ok::<Event, std::convert::Infallible>(Event::default().data("[DONE]")),
+            Ok(data) if data == "[DONE]" => {
+                Ok::<Event, std::convert::Infallible>(Event::default().data("[DONE]"))
+            }
             Ok(text) => Ok(Event::default().data(text)),
             Err(e) => Ok(Event::default().data(format!("[Error: {}]", e))),
         });
@@ -734,10 +915,20 @@ async fn handle_completions(
             let _permit = state.concurrency.acquire().await.unwrap();
             let mut runner = state.runner.lock().await;
             runner.kv.reset();
-            match runner.generate(&req.prompt, max_tokens, req.temperature, req.top_p, req.repetition_penalty) {
+            match runner.generate(
+                &req.prompt,
+                max_tokens,
+                req.temperature,
+                req.top_p,
+                req.repetition_penalty,
+            ) {
                 Ok(t) => t,
                 Err(e) => {
-                    return api_error(StatusCode::INTERNAL_SERVER_ERROR, "server_error", &format!("Generation failed: {}", e));
+                    return api_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "server_error",
+                        &format!("Generation failed: {}", e),
+                    );
                 }
             }
         };
@@ -746,9 +937,20 @@ async fn handle_completions(
         let completion_tokens = max_tokens;
 
         let response = CompletionResponse {
-            id: comp_id, object: "text_completion", created: created_time, model: model_name,
-            choices: vec![CompletionChoice { text: generated_text, index: 0, finish_reason: Some("stop".to_string()) }],
-            usage: ChatUsage { prompt_tokens, completion_tokens, total_tokens: prompt_tokens + completion_tokens },
+            id: comp_id,
+            object: "text_completion",
+            created: created_time,
+            model: model_name,
+            choices: vec![CompletionChoice {
+                text: generated_text,
+                index: 0,
+                finish_reason: Some("stop".to_string()),
+            }],
+            usage: ChatUsage {
+                prompt_tokens,
+                completion_tokens,
+                total_tokens: prompt_tokens + completion_tokens,
+            },
         };
 
         (StatusCode::OK, cors_headers(), Json(response)).into_response()

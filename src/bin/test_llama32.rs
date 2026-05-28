@@ -24,7 +24,7 @@ fn main() -> Result<(), Error> {
     }
 
     let mut top: Vec<_> = last_logits.iter().enumerate().collect();
-    top.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    top.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
     eprintln!(
         "After prefill top-5: {:?}",
         top.iter()

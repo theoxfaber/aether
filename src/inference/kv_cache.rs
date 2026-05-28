@@ -6,7 +6,6 @@
 /// - Reads return raw `&[f32]` slices into the pre-allocated buffer
 ///
 /// Uses kv_heads (not n_heads) since GQA means K/V have fewer heads than Q.
-
 pub struct StaticKVCache {
     /// Raw storage: [num_layers, 2 (k/v), kv_heads, max_seq, head_dim]
     storage: Vec<f32>,

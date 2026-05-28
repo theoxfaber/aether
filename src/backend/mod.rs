@@ -54,16 +54,36 @@ pub mod backend_mod {
 
         // ── Broadcasting element-wise ─────────────────────────────────────
 
-        fn broadcast_add(&self, a: &Tensor, b: &Tensor, input_shapes: Vec<Shape>) -> Result<Tensor, Error> {
+        fn broadcast_add(
+            &self,
+            a: &Tensor,
+            b: &Tensor,
+            input_shapes: Vec<Shape>,
+        ) -> Result<Tensor, Error> {
             self.execute(&Op::BroadcastAdd { input_shapes }, &[a, b])
         }
-        fn broadcast_mul(&self, a: &Tensor, b: &Tensor, input_shapes: Vec<Shape>) -> Result<Tensor, Error> {
+        fn broadcast_mul(
+            &self,
+            a: &Tensor,
+            b: &Tensor,
+            input_shapes: Vec<Shape>,
+        ) -> Result<Tensor, Error> {
             self.execute(&Op::BroadcastMul { input_shapes }, &[a, b])
         }
-        fn broadcast_sub(&self, a: &Tensor, b: &Tensor, input_shapes: Vec<Shape>) -> Result<Tensor, Error> {
+        fn broadcast_sub(
+            &self,
+            a: &Tensor,
+            b: &Tensor,
+            input_shapes: Vec<Shape>,
+        ) -> Result<Tensor, Error> {
             self.execute(&Op::BroadcastSub { input_shapes }, &[a, b])
         }
-        fn broadcast_div(&self, a: &Tensor, b: &Tensor, input_shapes: Vec<Shape>) -> Result<Tensor, Error> {
+        fn broadcast_div(
+            &self,
+            a: &Tensor,
+            b: &Tensor,
+            input_shapes: Vec<Shape>,
+        ) -> Result<Tensor, Error> {
             self.execute(&Op::BroadcastDiv { input_shapes }, &[a, b])
         }
 
@@ -100,7 +120,13 @@ pub mod backend_mod {
             // use execute with multiple inputs (concrete backend handles the axis)
             self.execute(&Op::Concat { axis }, inputs)
         }
-        fn slice(&self, x: &Tensor, axis: usize, start: usize, end: usize) -> Result<Tensor, Error> {
+        fn slice(
+            &self,
+            x: &Tensor,
+            axis: usize,
+            start: usize,
+            end: usize,
+        ) -> Result<Tensor, Error> {
             self.execute(&Op::Slice { axis, start, end }, &[x])
         }
 
@@ -112,7 +138,13 @@ pub mod backend_mod {
         fn step(&self, x: &Tensor) -> Result<Tensor, Error> {
             self.execute(&Op::Step, &[x])
         }
-        fn layer_norm(&self, x: &Tensor, weight: &Tensor, bias: &Tensor, epsilon: f32) -> Result<Tensor, Error> {
+        fn layer_norm(
+            &self,
+            x: &Tensor,
+            weight: &Tensor,
+            bias: &Tensor,
+            epsilon: f32,
+        ) -> Result<Tensor, Error> {
             self.execute(&Op::LayerNorm { epsilon }, &[x, weight, bias])
         }
         fn rms_norm(&self, x: &Tensor, weight: &Tensor, epsilon: f32) -> Result<Tensor, Error> {
@@ -121,28 +153,87 @@ pub mod backend_mod {
 
         // ── Convolution / pooling ─────────────────────────────────────────
 
-        fn conv2d(&self, x: &Tensor, weight: &Tensor, stride: usize, padding: usize) -> Result<Tensor, Error> {
+        fn conv2d(
+            &self,
+            x: &Tensor,
+            weight: &Tensor,
+            stride: usize,
+            padding: usize,
+        ) -> Result<Tensor, Error> {
             self.execute(&Op::Conv2d { stride, padding }, &[x, weight])
         }
-        fn max_pool2d(&self, x: &Tensor, pool_size: usize, stride: usize, padding: usize) -> Result<Tensor, Error> {
-            self.execute(&Op::MaxPool2d { pool_size, stride, padding }, &[x])
+        fn max_pool2d(
+            &self,
+            x: &Tensor,
+            pool_size: usize,
+            stride: usize,
+            padding: usize,
+        ) -> Result<Tensor, Error> {
+            self.execute(
+                &Op::MaxPool2d {
+                    pool_size,
+                    stride,
+                    padding,
+                },
+                &[x],
+            )
         }
-        fn avg_pool2d(&self, x: &Tensor, pool_size: usize, stride: usize, padding: usize) -> Result<Tensor, Error> {
-            self.execute(&Op::AvgPool2d { pool_size, stride, padding }, &[x])
+        fn avg_pool2d(
+            &self,
+            x: &Tensor,
+            pool_size: usize,
+            stride: usize,
+            padding: usize,
+        ) -> Result<Tensor, Error> {
+            self.execute(
+                &Op::AvgPool2d {
+                    pool_size,
+                    stride,
+                    padding,
+                },
+                &[x],
+            )
         }
 
         // ── Attention ─────────────────────────────────────────────────────
 
-        fn attention(&self, q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Result<Tensor, Error> {
+        fn attention(
+            &self,
+            q: &Tensor,
+            k: &Tensor,
+            v: &Tensor,
+            scale: f32,
+        ) -> Result<Tensor, Error> {
             self.execute(&Op::Attention { scale }, &[q, k, v])
         }
-        fn causal_attention(&self, q: &Tensor, k: &Tensor, v: &Tensor, scale: f32, num_heads: usize) -> Result<Tensor, Error> {
+        fn causal_attention(
+            &self,
+            q: &Tensor,
+            k: &Tensor,
+            v: &Tensor,
+            scale: f32,
+            num_heads: usize,
+        ) -> Result<Tensor, Error> {
             self.execute(&Op::CausalAttention { scale, num_heads }, &[q, k, v])
         }
-        fn multi_head_attention(&self, q: &Tensor, k: &Tensor, v: &Tensor, scale: f32, num_heads: usize) -> Result<Tensor, Error> {
+        fn multi_head_attention(
+            &self,
+            q: &Tensor,
+            k: &Tensor,
+            v: &Tensor,
+            scale: f32,
+            num_heads: usize,
+        ) -> Result<Tensor, Error> {
             self.execute(&Op::MultiHeadAttention { scale, num_heads }, &[q, k, v])
         }
-        fn flash_attention(&self, q: &Tensor, k: &Tensor, v: &Tensor, scale: f32, causal: bool) -> Result<Tensor, Error> {
+        fn flash_attention(
+            &self,
+            q: &Tensor,
+            k: &Tensor,
+            v: &Tensor,
+            scale: f32,
+            causal: bool,
+        ) -> Result<Tensor, Error> {
             self.execute(&Op::FlashAttention { scale, causal }, &[q, k, v])
         }
 
@@ -166,40 +257,118 @@ pub mod backend_mod {
         fn softmax_grad(&self, dy: &Tensor, y: &Tensor) -> Result<Tensor, Error> {
             self.execute(&Op::SoftmaxGrad, &[dy, y])
         }
-        fn layer_norm_grad_x(&self, dy: &Tensor, x: &Tensor, weight: &Tensor, epsilon: f32) -> Result<Tensor, Error> {
+        fn layer_norm_grad_x(
+            &self,
+            dy: &Tensor,
+            x: &Tensor,
+            weight: &Tensor,
+            epsilon: f32,
+        ) -> Result<Tensor, Error> {
             self.execute(&Op::LayerNormGradX { epsilon }, &[dy, x, weight])
         }
-        fn layer_norm_grad_w(&self, dy: &Tensor, x: &Tensor, epsilon: f32) -> Result<Tensor, Error> {
+        fn layer_norm_grad_w(
+            &self,
+            dy: &Tensor,
+            x: &Tensor,
+            epsilon: f32,
+        ) -> Result<Tensor, Error> {
             self.execute(&Op::LayerNormGradW { epsilon }, &[dy, x])
         }
         fn layer_norm_grad_b(&self, dy: &Tensor) -> Result<Tensor, Error> {
             self.execute(&Op::LayerNormGradB, &[dy])
         }
-        fn conv2d_grad_x(&self, dy: &Tensor, weight: &Tensor, stride: usize, padding: usize) -> Result<Tensor, Error> {
+        fn conv2d_grad_x(
+            &self,
+            dy: &Tensor,
+            weight: &Tensor,
+            stride: usize,
+            padding: usize,
+        ) -> Result<Tensor, Error> {
             self.execute(&Op::Conv2dGradX { stride, padding }, &[dy, weight])
         }
-        fn conv2d_grad_w(&self, dy: &Tensor, x: &Tensor, stride: usize, padding: usize) -> Result<Tensor, Error> {
+        fn conv2d_grad_w(
+            &self,
+            dy: &Tensor,
+            x: &Tensor,
+            stride: usize,
+            padding: usize,
+        ) -> Result<Tensor, Error> {
             self.execute(&Op::Conv2dGradW { stride, padding }, &[dy, x])
         }
         fn conv2d_grad_b(&self, dy: &Tensor) -> Result<Tensor, Error> {
             self.execute(&Op::Conv2dGradB, &[dy])
         }
-        fn max_pool2d_grad(&self, dy: &Tensor, x: &Tensor, pool_size: usize, stride: usize, padding: usize) -> Result<Tensor, Error> {
-            self.execute(&Op::MaxPool2dGrad { pool_size, stride, padding }, &[dy, x])
+        fn max_pool2d_grad(
+            &self,
+            dy: &Tensor,
+            x: &Tensor,
+            pool_size: usize,
+            stride: usize,
+            padding: usize,
+        ) -> Result<Tensor, Error> {
+            self.execute(
+                &Op::MaxPool2dGrad {
+                    pool_size,
+                    stride,
+                    padding,
+                },
+                &[dy, x],
+            )
         }
-        fn avg_pool2d_grad(&self, dy: &Tensor, x: &Tensor, pool_size: usize, stride: usize, padding: usize) -> Result<Tensor, Error> {
-            self.execute(&Op::AvgPool2dGrad { pool_size, stride, padding }, &[dy, x])
+        fn avg_pool2d_grad(
+            &self,
+            dy: &Tensor,
+            x: &Tensor,
+            pool_size: usize,
+            stride: usize,
+            padding: usize,
+        ) -> Result<Tensor, Error> {
+            self.execute(
+                &Op::AvgPool2dGrad {
+                    pool_size,
+                    stride,
+                    padding,
+                },
+                &[dy, x],
+            )
         }
-        fn slice_grad(&self, dy: &Tensor, axis: usize, start: usize, end: usize) -> Result<Tensor, Error> {
+        fn slice_grad(
+            &self,
+            dy: &Tensor,
+            axis: usize,
+            start: usize,
+            end: usize,
+        ) -> Result<Tensor, Error> {
             self.execute(&Op::SliceGrad { axis, start, end }, &[dy])
         }
-        fn attention_grad_q(&self, dy: &Tensor, q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Result<Tensor, Error> {
+        fn attention_grad_q(
+            &self,
+            dy: &Tensor,
+            q: &Tensor,
+            k: &Tensor,
+            v: &Tensor,
+            scale: f32,
+        ) -> Result<Tensor, Error> {
             self.execute(&Op::AttentionGradQ { scale }, &[dy, q, k, v])
         }
-        fn attention_grad_k(&self, dy: &Tensor, q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Result<Tensor, Error> {
+        fn attention_grad_k(
+            &self,
+            dy: &Tensor,
+            q: &Tensor,
+            k: &Tensor,
+            v: &Tensor,
+            scale: f32,
+        ) -> Result<Tensor, Error> {
             self.execute(&Op::AttentionGradK { scale }, &[dy, q, k, v])
         }
-        fn attention_grad_v(&self, dy: &Tensor, q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Result<Tensor, Error> {
+        fn attention_grad_v(
+            &self,
+            dy: &Tensor,
+            q: &Tensor,
+            k: &Tensor,
+            v: &Tensor,
+            scale: f32,
+        ) -> Result<Tensor, Error> {
             self.execute(&Op::AttentionGradV { scale }, &[dy, q, k, v])
         }
 

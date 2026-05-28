@@ -361,12 +361,12 @@ impl MemoryAwareScheduler {
         let layer_gpu_sizes: Vec<usize> = model
             .layers
             .iter()
-            .map(|l| Self::layer_gpu_footprint(l))
+            .map(Self::layer_gpu_footprint)
             .collect();
         let layer_sizes: Vec<usize> = model
             .layers
             .iter()
-            .map(|l| Self::layer_footprint(l))
+            .map(Self::layer_footprint)
             .collect();
         let total_model: usize = layer_sizes.iter().sum();
 

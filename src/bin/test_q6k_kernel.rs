@@ -1,3 +1,4 @@
+#![allow(clippy::needless_range_loop)]
 use aether::loader::dequant::dequantize;
 /// Directly test the Q6_K matmul kernel vs a reference f32 implementation.
 use aether::loader::gguf::{GGUFDtype, GGUFLoader};
@@ -97,9 +98,9 @@ fn main() -> Result<(), Error> {
     eprintln!("max_abs_diff={:.6}", max_diff);
 
     let mut ref_top: Vec<_> = ref_out.iter().enumerate().collect();
-    ref_top.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    ref_top.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
     let mut q6k_top: Vec<_> = q6k_out.iter().enumerate().collect();
-    q6k_top.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    q6k_top.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
     eprintln!(
         "Ref top-5: {:?}",
         ref_top

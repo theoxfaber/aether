@@ -2192,13 +2192,11 @@ pub mod cpu_mod {
             output: &mut [f32],
             output_shape: &Shape,
         ) -> Result<(), Error> {
-            let inputs_slices = [input];
-            let input_shapes = [input_shape.clone()];
             for (i, out) in output.iter_mut().enumerate() {
                 *out = crate::codegen::ast::evaluate_ast(
                     expr,
-                    &[&inputs_slices[0]],
-                    &input_shapes,
+                    &[input],
+                    std::slice::from_ref(input_shape),
                     output_shape,
                     i,
                 );

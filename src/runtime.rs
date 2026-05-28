@@ -54,7 +54,13 @@ pub mod runtime_mod {
         };
 
         // 2. Generate schedule
-        let schedule = if target.graph.inner.read().expect("Graph lock poisoned in execute_impl").enable_fusion {
+        let schedule = if target
+            .graph
+            .inner
+            .read()
+            .expect("Graph lock poisoned in execute_impl")
+            .enable_fusion
+        {
             crate::scheduler::fusion::FusionPass::run(target)?
         } else {
             let scheduler = SimpleScheduler::new();
@@ -176,34 +182,38 @@ pub mod runtime_mod {
             let target_tid = dag[target.id].tensor_id;
 
             // 7. Parallel Execution Graph Dispatch via Rayon
-            use std::sync::{Arc, Mutex};
+            use std::collections::HashMap;
             use std::sync::atomic::{AtomicUsize, Ordering};
             use std::sync::mpsc;
-            use std::collections::HashMap;
+            use std::sync::{Arc, Mutex};
 
             // Helper to get inputs/output of a ScheduledOp
             let get_op_io = |op: &ScheduledOp| -> (Vec<TensorId>, TensorId) {
                 match op {
                     ScheduledOp::Plain(node_id, _) => {
-                        let inputs = crate::graph::get_indexed_inputs(dag, *node_id).unwrap_or_default();
+                        let inputs =
+                            crate::graph::get_indexed_inputs(dag, *node_id).unwrap_or_default();
                         let input_tids = inputs.iter().map(|&idx| dag[idx].tensor_id).collect();
                         let output_tid = dag[*node_id].tensor_id;
                         (input_tids, output_tid)
                     }
                     ScheduledOp::Fused(fused) => match fused {
-                        crate::scheduler::FusedOp::MatMulRelu { a, b, output } => {
-                            (vec![dag[*a].tensor_id, dag[*b].tensor_id], dag[*output].tensor_id)
-                        }
-                        crate::scheduler::FusedOp::MatMulAdd { a, b, bias, output } => {
-                            (vec![dag[*a].tensor_id, dag[*b].tensor_id, dag[*bias].tensor_id], dag[*output].tensor_id)
-                        }
-                        crate::scheduler::FusedOp::MatMulAddRelu { a, b, bias, output } => {
-                            (vec![dag[*a].tensor_id, dag[*b].tensor_id, dag[*bias].tensor_id], dag[*output].tensor_id)
-                        }
+                        crate::scheduler::FusedOp::MatMulRelu { a, b, output } => (
+                            vec![dag[*a].tensor_id, dag[*b].tensor_id],
+                            dag[*output].tensor_id,
+                        ),
+                        crate::scheduler::FusedOp::MatMulAdd { a, b, bias, output } => (
+                            vec![dag[*a].tensor_id, dag[*b].tensor_id, dag[*bias].tensor_id],
+                            dag[*output].tensor_id,
+                        ),
+                        crate::scheduler::FusedOp::MatMulAddRelu { a, b, bias, output } => (
+                            vec![dag[*a].tensor_id, dag[*b].tensor_id, dag[*bias].tensor_id],
+                            dag[*output].tensor_id,
+                        ),
                         crate::scheduler::FusedOp::ElementwiseChain { input, output, .. } => {
                             (vec![dag[*input].tensor_id], dag[*output].tensor_id)
                         }
-                    }
+                    },
                 }
             };
 
@@ -331,7 +341,9 @@ pub mod runtime_mod {
                     let mut completed_tasks = 0;
                     while completed_tasks < num_ops {
                         let (op_idx, res) = {
-                            let rx_lock = rx.lock().expect("Runtime coordinator channel lock poisoned");
+                            let rx_lock = rx
+                                .lock()
+                                .expect("Runtime coordinator channel lock poisoned");
                             match rx_lock.recv() {
                                 Ok(val) => val,
                                 Err(_) => break, // Channel closed
@@ -363,7 +375,8 @@ pub mod runtime_mod {
                                 // can unblock a consumer.
                                 if let Some(consumers) = tensor_to_pending.get(&output_tid) {
                                     for &consumer_op_idx in consumers {
-                                        let prev = in_degrees[consumer_op_idx].fetch_sub(1, Ordering::SeqCst);
+                                        let prev = in_degrees[consumer_op_idx]
+                                            .fetch_sub(1, Ordering::SeqCst);
                                         if prev == 1 {
                                             let tx = tx.clone();
                                             let cancelled_ref = &cancelled;
@@ -381,7 +394,8 @@ pub mod runtime_mod {
                             }
                             Err(e) => {
                                 cancelled.store(true, Ordering::SeqCst);
-                                let mut guard = shared_err.lock().expect("Shared error lock poisoned");
+                                let mut guard =
+                                    shared_err.lock().expect("Shared error lock poisoned");
                                 if guard.is_none() {
                                     *guard = Some(e);
                                 }
@@ -1358,6 +1372,5 @@ pub mod runtime_mod {
         }
         Ok(())
     }
-
 }
 pub use runtime_mod::{execute, execute_no_readback};

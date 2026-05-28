@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments, clippy::needless_range_loop)]
 use aether::loader::dequant::dequantize;
 /// Debug: prefill all 22 layers, quantized vs f32 reference.
 use aether::loader::gguf::GGUFLoader;
@@ -372,7 +373,7 @@ fn qm(a: &[f32], t: &aether::loader::gguf::GGUFTensor, c: &mut [f32]) {
         a,
         1,
         &t.data,
-        &vec![t.shape[1], t.shape[0]],
+        &[t.shape[1], t.shape[0]],
         t.dtype,
         c,
         None,

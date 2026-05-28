@@ -168,9 +168,7 @@ fn generate_test_gguf() -> Vec<u8> {
     meta_u32!("rope.dimension_count", ROPE_DIM);
 
     // Tokenizer: byte-fallback tokens for full byte coverage
-    let tokens: Vec<String> = (0..VOCAB_SIZE)
-        .map(|i| format!("<0x{:02X}>", i))
-        .collect();
+    let tokens: Vec<String> = (0..VOCAB_SIZE).map(|i| format!("<0x{:02X}>", i)).collect();
     meta_str_array!("tokenizer.ggml.tokens", &tokens);
     meta_u32!("tokenizer.ggml.bos_token_id", 1);
     meta_u32!("tokenizer.ggml.eos_token_id", 2);
@@ -226,8 +224,8 @@ fn test_e2e_synthetic_model() {
     std::fs::write(&model_path, &gguf_bytes).unwrap();
 
     // Load with LlamaRunner
-    let mut runner =
-        LlamaRunner::from_gguf(model_path.to_str().unwrap()).expect("Failed to load synthetic GGUF");
+    let mut runner = LlamaRunner::from_gguf(model_path.to_str().unwrap())
+        .expect("Failed to load synthetic GGUF");
 
     // Generate with greedy decoding (temperature=0) for reproducibility
     let output1 = runner
@@ -236,8 +234,8 @@ fn test_e2e_synthetic_model() {
 
     // Drop and reload to reset KV cache
     drop(runner);
-    let mut runner2 =
-        LlamaRunner::from_gguf(model_path.to_str().unwrap()).expect("Failed to load synthetic GGUF (second load)");
+    let mut runner2 = LlamaRunner::from_gguf(model_path.to_str().unwrap())
+        .expect("Failed to load synthetic GGUF (second load)");
 
     let output2 = runner2
         .generate("test", 16, 0.0, 0.9, 1.0)

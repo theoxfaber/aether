@@ -35,7 +35,7 @@ where
     // Recover from a poisoned mutex rather than panicking across FFI:
     // a previous operation may have panicked while holding the lock.
     let inner = m.inner.lock().unwrap_or_else(|e| e.into_inner());
-    f(&*inner)
+    f(&inner)
 }
 
 fn with_model_mut<F, R>(model: *mut AetherModel, f: F) -> R
@@ -45,7 +45,7 @@ where
     // SAFETY: caller guarantees model is a valid, non-null pointer.
     let m = unsafe { &mut *model };
     let mut inner = m.inner.lock().unwrap_or_else(|e| e.into_inner());
-    f(&mut *inner)
+    f(&mut inner)
 }
 
 /// Load a GGUF model from disk.
@@ -356,6 +356,7 @@ pub extern "C" fn aether_decode_budgeted(
 /// - `temperature` = 0.0 → greedy (argmax)
 /// - `temperature` > 0.0 → softmax sampling
 /// - `top_p` = 1.0 → no nucleus filtering
+///
 /// Returns the sampled token id, or -1 on error.
 #[no_mangle]
 pub extern "C" fn aether_sample(

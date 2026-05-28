@@ -14,7 +14,7 @@ fn argmax(logits: &[f32]) -> usize {
 #[allow(dead_code)]
 fn topk(logits: &[f32], k: usize) -> Vec<(usize, f32)> {
     let mut v: Vec<_> = logits.iter().enumerate().collect();
-    v.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    v.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
     v.iter().take(k).map(|(i, v)| (*i, **v)).collect()
 }
 

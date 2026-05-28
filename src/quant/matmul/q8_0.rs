@@ -1,8 +1,15 @@
-use rayon::prelude::*;
 use crate::quant::matmul::common::*;
+use rayon::prelude::*;
 
 #[allow(dead_code)]
-pub(crate) fn matmul_q8_0_scalar(a: &[f32], b_quant: &[u8], m: usize, n: usize, k: usize, c: &mut [f32]) {
+pub(crate) fn matmul_q8_0_scalar(
+    a: &[f32],
+    b_quant: &[u8],
+    m: usize,
+    n: usize,
+    k: usize,
+    c: &mut [f32],
+) {
     if m > 1 {
         return matmul_q8_0_batched_scalar(a, b_quant, m, n, k, c);
     }

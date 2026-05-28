@@ -18,9 +18,9 @@ pub fn sha256_hex(path: &str) -> Result<String, Error> {
     let mut hasher = Sha256::new();
     let mut buf = [0u8; 65536];
     loop {
-        let n = file.read(&mut buf).map_err(|e| {
-            Error::ExecutionError(format!("Failed to read file for checksum: {e}"))
-        })?;
+        let n = file
+            .read(&mut buf)
+            .map_err(|e| Error::ExecutionError(format!("Failed to read file for checksum: {e}")))?;
         if n == 0 {
             break;
         }
@@ -212,6 +212,10 @@ impl SharedBytes {
         match self {
             SharedBytes::Mmap { len, .. } | SharedBytes::Owned { len, .. } => *len,
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// If this is backed by an mmap, return the shared Arc reference.

@@ -32,7 +32,9 @@ static REGISTRY: LazyLock<RwLock<HashMap<GGUFDtype, Box<dyn QuantKernel>>>> =
 #[allow(dead_code)]
 pub fn register_kernel(kernel: Box<dyn QuantKernel>) {
     let dtype = kernel.dtype();
-    let mut reg = REGISTRY.write().expect("QuantKernel registry lock poisoned");
+    let mut reg = REGISTRY
+        .write()
+        .expect("QuantKernel registry lock poisoned");
     if reg.contains_key(&dtype) {
         panic!("QuantKernel for {:?} already registered", dtype);
     }
@@ -69,12 +71,18 @@ mod tests {
         fn matmul(&self, a: &[f32], _m: usize, b_raw: &[u8], n: usize, k: usize, c: &mut [f32]) {
             let b = crate::loader::dequant::dequantize(b_raw, GGUFDtype::Q8_0, &[k, n]);
             for i in 0.. {
-                if i >= a.len() || i >= c.len() { break; }
+                if i >= a.len() || i >= c.len() {
+                    break;
+                }
                 c[i] = a[i] + b[i];
             }
         }
-        fn dtype(&self) -> GGUFDtype { GGUFDtype::Q8_0 }
-        fn name(&self) -> &'static str { "test_q8" }
+        fn dtype(&self) -> GGUFDtype {
+            GGUFDtype::Q8_0
+        }
+        fn name(&self) -> &'static str {
+            "test_q8"
+        }
     }
 
     #[test]

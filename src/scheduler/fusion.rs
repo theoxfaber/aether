@@ -163,9 +163,14 @@ impl FusionPass {
                                     // Check if we can fuse all the way to Relu: MatMul + Add + Relu -> MatMulAddRelu
                                     let mut fused_to_relu = false;
                                     let add_consumers: Vec<NodeIndex> = dag
-                                        .neighbors_directed(consumer_id, petgraph::Direction::Outgoing)
+                                        .neighbors_directed(
+                                            consumer_id,
+                                            petgraph::Direction::Outgoing,
+                                        )
                                         .collect();
-                                    if add_consumers.len() == 1 && ancestors.contains(&add_consumers[0]) {
+                                    if add_consumers.len() == 1
+                                        && ancestors.contains(&add_consumers[0])
+                                    {
                                         let next_id = add_consumers[0];
                                         if matches!(dag[next_id].op, Op::Relu) {
                                             // Cost model for MatMulAddRelu
@@ -174,23 +179,28 @@ impl FusionPass {
                                             let bytes_fused =
                                                 (m * k + k * n + m * n + bias_len) as f64 * 4.0;
                                             let saved_bytes = bytes_unfused - bytes_fused;
-                                            let mem_time_saved = saved_bytes / (bandwidth_gbps * 1e9);
+                                            let mem_time_saved =
+                                                saved_bytes / (bandwidth_gbps * 1e9);
 
-                                            let matmul_flops = 2.0 * (m as f64) * (n as f64) * (k as f64);
+                                            let matmul_flops =
+                                                2.0 * (m as f64) * (n as f64) * (k as f64);
                                             let math_time_unfused =
                                                 matmul_flops / (compute_flops_gflops * 1e9);
                                             let overhead_factor = 0.01;
-                                            let math_time_overhead = math_time_unfused * overhead_factor;
+                                            let math_time_overhead =
+                                                math_time_unfused * overhead_factor;
 
                                             if mem_time_saved > math_time_overhead {
                                                 fused_set.insert(consumer_id);
                                                 fused_set.insert(next_id);
-                                                schedule.push(ScheduledOp::Fused(FusedOp::MatMulAddRelu {
-                                                    a: inputs[0],
-                                                    b: inputs[1],
-                                                    bias,
-                                                    output: next_id,
-                                                }));
+                                                schedule.push(ScheduledOp::Fused(
+                                                    FusedOp::MatMulAddRelu {
+                                                        a: inputs[0],
+                                                        b: inputs[1],
+                                                        bias,
+                                                        output: next_id,
+                                                    },
+                                                ));
                                                 fused_count += 1;
                                                 fused_to_relu = true;
                                             }

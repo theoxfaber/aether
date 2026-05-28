@@ -1,7 +1,14 @@
-use rayon::prelude::*;
 use crate::quant::matmul::common::*;
+use rayon::prelude::*;
 
-pub(crate) fn matmul_q3_k_scalar(a: &[f32], b_quant: &[u8], m: usize, n: usize, k: usize, c: &mut [f32]) {
+pub(crate) fn matmul_q3_k_scalar(
+    a: &[f32],
+    b_quant: &[u8],
+    m: usize,
+    n: usize,
+    k: usize,
+    c: &mut [f32],
+) {
     if m > 1 {
         return matmul_q3_k_batched_scalar(a, b_quant, m, n, k, c);
     }
@@ -28,7 +35,7 @@ pub(crate) fn matmul_q3_k_scalar(a: &[f32], b_quant: &[u8], m: usize, n: usize, 
             }
             for i in 0..4 {
                 let b = sr[i + 8];
-                sc[i] |= ((b >> 0) as i16 & 0x03) << 4;
+                sc[i] |= (b as i16 & 0x03) << 4;
                 sc[i + 4] |= ((b >> 2) as i16 & 0x03) << 4;
                 sc[i + 8] |= ((b >> 4) as i16 & 0x03) << 4;
                 sc[i + 12] |= ((b >> 6) as i16 & 0x03) << 4;
@@ -90,7 +97,7 @@ pub(crate) fn matmul_q3_k_batched_scalar(
                 }
                 for i in 0..4 {
                     let b = sr[i + 8];
-                    sc[i] |= ((b >> 0) as i16 & 0x03) << 4;
+                    sc[i] |= (b as i16 & 0x03) << 4;
                     sc[i + 4] |= ((b >> 2) as i16 & 0x03) << 4;
                     sc[i + 8] |= ((b >> 4) as i16 & 0x03) << 4;
                     sc[i + 12] |= ((b >> 6) as i16 & 0x03) << 4;
