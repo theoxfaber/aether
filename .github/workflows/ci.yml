@@ -11,33 +11,17 @@ env:
 
 jobs:
   build:
-    name: ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-      fail-fast: false
-
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install clippy
-        run: rustup component add clippy
+      - name: Install Rust
+        run: rustup update stable && rustup default stable && rustup component add clippy rustfmt
       - uses: Swatinem/rust-cache@v2
-        with:
-          key: ci-${{ matrix.os }}
       - name: Build
         run: cargo build
       - name: Test
         run: cargo test
       - name: Clippy
         run: cargo clippy -- -D warnings
-
-  fmt:
-    name: rustfmt
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Rust
-        run: rustup update stable && rustup default stable && rustup component add rustfmt
-      - name: Check formatting
+      - name: Format
         run: cargo fmt --check
