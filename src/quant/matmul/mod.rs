@@ -1,6 +1,6 @@
 #![allow(unused_imports)]
 
-mod common;
+pub(crate) mod common;
 mod f16;
 mod q2_k;
 mod q3_k;

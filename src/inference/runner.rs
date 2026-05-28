@@ -1930,6 +1930,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires tinyllama-q4.gguf in project root"]
     fn test_streaming_matches_in_memory() {
         let model_path = concat!(env!("CARGO_MANIFEST_DIR"), "/tinyllama-q4.gguf");
 
