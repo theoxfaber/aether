@@ -1,19 +1,20 @@
 use crate::inference::model_loader::{LlamaConfig, LlamaModel, QuantWeight};
 use crate::Device;
-/// Memory-aware layer scheduler for heterogeneous CPU+GPU execution.
-///
-/// On Apple Silicon (UMA), the GPU can directly access CPU memory with no copies.
-/// This scheduler:
-///   1. Detects available unified memory at startup
-///   2. Measures each transformer layer's memory footprint from model weights
-///   3. Auto-assigns layers: earlier layers on GPU (WGPU), later on CPU
-///      — zero user config required
-///   4. If model doesn't fit in RAM, enables mmap-based streaming with LRU eviction
-///
-/// Design: The scheduler is a decision-making component at model-load time.
-/// It doesn't own the execution — `LlamaRunner` queries it for which device
-/// each layer runs on.
 use std::process::Command;
+
+// Memory-aware layer scheduler for heterogeneous CPU+GPU execution.
+//
+// On Apple Silicon (UMA), the GPU can directly access CPU memory with no copies.
+// This scheduler:
+//   1. Detects available unified memory at startup
+//   2. Measures each transformer layer's memory footprint from model weights
+//   3. Auto-assigns layers: earlier layers on GPU (WGPU), later on CPU
+//      — zero user config required
+//   4. If model doesn't fit in RAM, enables mmap-based streaming with LRU eviction
+//
+// Design: The scheduler is a decision-making component at model-load time.
+// It doesn't own the execution — `LlamaRunner` queries it for which device
+// each layer runs on.
 
 /// Memory plan: tells the runner how to handle model weights.
 #[derive(Debug, Clone, PartialEq)]

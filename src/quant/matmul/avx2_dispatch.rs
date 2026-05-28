@@ -1,3 +1,7 @@
+// SAFETY: This module contains unsafe dispatch to AVX2/NEON SIMD matmul kernels.
+// Each unsafe call is gated behind runtime CPU feature detection.
+#![allow(unsafe_code)]
+#[cfg(target_arch = "aarch64")]
 use crate::quant::matmul::neon;
 
 #[cfg(target_arch = "aarch64")]

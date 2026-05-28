@@ -1,4 +1,11 @@
+// SAFETY: This module contains x86_64 AVX2 SIMD intrinsics which are inherently unsafe.
+// The functions are only compiled on x86_64 targets and check for AVX2 support at runtime.
+#![allow(unsafe_code)]
 use super::dequant::{dequant_q4_k_block, dequant_q5_k_block, dequant_q6_k_block};
+use crate::quant::matmul::common::{
+    Q4K_BLOCK_BYTES, Q4K_BLOCK_SIZE, Q5K_BLOCK_BYTES, Q5K_BLOCK_SIZE, Q6K_BLOCK_BYTES,
+    Q6K_BLOCK_SIZE,
+};
 
 /// Horizontal sum of 8 f32 values in an AVX2 register
 #[inline(always)]
@@ -13,8 +20,8 @@ unsafe fn hsum_f32x8(v: std::arch::x86_64::__m256) -> f32 {
 
 /// Q4_K matmul using AVX2 (f32 pipeline, no dotprod)
 pub unsafe fn matmul_q4_k(a: &[f32], b_quant: &[u8], m: usize, n: usize, k: usize, c: &mut [f32]) {
-    let block_size = super::Q4K_BLOCK_SIZE; // 256
-    let block_bytes = super::Q4K_BLOCK_BYTES; // 144
+    let block_size = Q4K_BLOCK_SIZE; // 256
+    let block_bytes = Q4K_BLOCK_BYTES; // 144
     let num_blocks = k / block_size;
 
     for row in 0..m {
@@ -50,8 +57,8 @@ pub unsafe fn matmul_q4_k(a: &[f32], b_quant: &[u8], m: usize, n: usize, k: usiz
 
 /// Q6_K matmul using AVX2 (f32 pipeline)
 pub unsafe fn matmul_q6_k(a: &[f32], b_quant: &[u8], m: usize, n: usize, k: usize, c: &mut [f32]) {
-    let block_size = super::Q6K_BLOCK_SIZE; // 256
-    let block_bytes = super::Q6K_BLOCK_BYTES; // 210
+    let block_size = Q6K_BLOCK_SIZE; // 256
+    let block_bytes = Q6K_BLOCK_BYTES; // 210
     let num_blocks = k / block_size;
 
     for row in 0..m {
@@ -87,8 +94,8 @@ pub unsafe fn matmul_q6_k(a: &[f32], b_quant: &[u8], m: usize, n: usize, k: usiz
 
 /// Q5_K matmul using AVX2 (f32 pipeline)
 pub unsafe fn matmul_q5_k(a: &[f32], b_quant: &[u8], m: usize, n: usize, k: usize, c: &mut [f32]) {
-    let block_size = super::Q5K_BLOCK_SIZE; // 256
-    let block_bytes = super::Q5K_BLOCK_BYTES; // 176
+    let block_size = Q5K_BLOCK_SIZE; // 256
+    let block_bytes = Q5K_BLOCK_BYTES; // 176
     let num_blocks = k / block_size;
 
     for row in 0..m {
