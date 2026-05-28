@@ -5,7 +5,7 @@ edition = "2021"
 autobenches = false
 description = "A heterogeneous compute runtime with dynamic AST compilation and automatic fusion scheduling"
 license = "MIT"
-repository = "https://github.com/anomalyco/aether"
+repository = "https://github.com/theoxfaber/aether"
 
 [workspace]
 

@@ -10,4 +10,7 @@ archive/
 out.log
 out_all.log
 results.json
+/test_ffi
+tools/test_ffi
+magic-context.jsonc
 

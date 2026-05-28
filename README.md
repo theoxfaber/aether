@@ -1,5 +1,7 @@
 # Aether
 
+[![CI](https://github.com/theoxfaber/aether/actions/workflows/ci.yml/badge.svg)](https://github.com/theoxfaber/aether/actions/workflows/ci.yml)
+
 A Rust-native heterogeneous compute runtime with an optimizing scheduler, automatic differentiation, and LLM inference engine. Write compute operations once — Aether automatically schedules, fuses, and executes them across CPU and GPU (WGPU/Metal) without manual memory management.
 
 ## Architecture
@@ -100,7 +102,7 @@ The cost model evaluates memory bandwidth savings vs. compute overhead using rea
 - Tracks CPU/GPU/Both residency per tensor
 - LRU eviction under soft GPU memory limit
 - Automatic host↔device upload/download
-- Arena allocation support (compiled, disabled pending WebGPU binding separation)
+- **Arena allocation**: compiled in but **disabled at runtime** (pending WebGPU binding separation — do not rely on this for performance)
 
 ### Prefetch Scheduler
 - Overlaps host→device uploads with compute
@@ -175,6 +177,14 @@ Full autoregressive inference with:
 | **Telemetry** | Per-layer timing, throughput, memory usage |
 | **llama.cpp Comparison** | `bench` subcommand runs and compares against llama-cli |
 
+## GPU Limitations
+
+**CPU fallback for unsupported GPU ops.** Attention, pooling, and several other complex operations currently download tensor data from GPU to CPU, compute on the host, then re-upload the result. This round-trip (GPU→CPU→GPU) can dominate inference time for transformer models, especially during prefill. Future work includes native WGSL implementations for these ops.
+
+**No native quantized WGSL shaders exist.** All 13 WGSL shaders operate on f32 data. Quantized matmul on GPU dequantizes to f32 before dispatch — correct but slower than a native quantized kernel would be.
+
+**Arena allocation is disabled.** Compiled into the binary but not active at runtime (pending WebGPU binding separation).
+
 ### Inference Server
 - Axum-based HTTP server with OpenAI-compatible API
 - Streaming SSE support via Server-Sent Events
@@ -184,7 +194,7 @@ Full autoregressive inference with:
 - **Observability**: `/health`, `/ready`, `/metrics` (Prometheus format) endpoints
 - **Rate limiting**: configurable per-minute global rate limit (default 60)
 - **Authentication**: optional API key via `AETHER_API_KEY` on `/v1/*` routes
-- **Production deployment**: see [deploy/DEPLOY.md](deploy/DEPLOY.md) — env var config, CPU-stable mode
+- **Production deployment**: configure via environment variables (`AETHER_*`); `AETHER_CPU_ONLY=1` for stable CPU-only serving
 
 ### CLI
 
