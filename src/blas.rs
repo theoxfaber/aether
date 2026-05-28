@@ -1,3 +1,7 @@
+// SAFETY: BLAS FFI functions take raw pointers with standard BLAS safety contracts
+// (caller ensures valid pointers, correct dimensions). These are FFI boundary functions
+// that wrap unsafe system BLAS libraries (Accelerate on macOS, or a naive fallback).
+#![allow(clippy::missing_safety_doc)]
 use crate::tensor::Tensor;
 /// BLAS-accelerated matrix multiplication using Apple's Accelerate framework.
 ///
