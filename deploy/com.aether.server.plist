@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.aether.server</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/aether-server</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>AETHER_MODEL_PATH</key>
+        <string>/usr/local/share/aether/model.gguf</string>
+        <key>AETHER_API_KEY</key>
+        <string>CHANGE_ME</string>
+        <key>AETHER_HOST</key>
+        <string>127.0.0.1</string>
+        <key>AETHER_PORT</key>
+        <string>8080</string>
+        <key>AETHER_CPU_ONLY</key>
+        <string>1</string>
+        <key>AETHER_MAX_TOKENS</key>
+        <string>512</string>
+        <key>AETHER_RATE_LIMIT</key>
+        <string>30</string>
+        <key>RUST_LOG</key>
+        <string>aether=info,aether_server=info</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/var/log/aether-server.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/aether-server.err.log</string>
+</dict>
+</plist>

@@ -1,0 +1,13 @@
+/target
+/target 2/
+__pycache__/
+*.gguf
+*.gguf.part
+*.log
+scratch/
+benchmark_results/
+archive/
+out.log
+out_all.log
+results.json
+

@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.os }} / ${{ matrix.feature_flag }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        feature_flag: [default, no-default-features]
+        include:
+          - feature_flag: default
+            cargo_args: ""
+          - feature_flag: no-default-features
+            cargo_args: "--no-default-features"
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions-rust-toolchain@v1
+        with:
+          toolchain: stable
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ci-${{ matrix.os }}-${{ matrix.feature_flag }}
+
+      - name: Build (${{ matrix.os }}, ${{ matrix.feature_flag }})
+        run: cargo build ${{ matrix.cargo_args }}
+
+      - name: Test (${{ matrix.os }}, ${{ matrix.feature_flag }})
+        run: cargo test ${{ matrix.cargo_args }}
+
+      - name: Clippy (${{ matrix.os }}, ${{ matrix.feature_flag }})
+        run: cargo clippy ${{ matrix.cargo_args }} -- -D warnings
+
+      - name: Build shared library (${{ matrix.os }}, ${{ matrix.feature_flag }})
+        run: cargo build ${{ matrix.cargo_args }} --lib
+
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt
+      - name: Check formatting
+        run: cargo fmt --check

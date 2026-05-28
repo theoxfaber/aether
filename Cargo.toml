@@ -1,0 +1,92 @@
+[package]
+name = "aether"
+version = "0.2.0"
+edition = "2021"
+autobenches = false
+description = "A heterogeneous compute runtime with dynamic AST compilation and automatic fusion scheduling"
+license = "MIT"
+repository = "https://github.com/anomalyco/aether"
+
+[workspace]
+
+[dependencies]
+ndarray = "0.15"
+petgraph = "0.6"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+wgpu = "0.20"
+pollster = "0.3"
+bytemuck = { version = "1.0", features = ["derive"] }
+sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "5"
+half = { version = "2.3", features = ["serde", "bytemuck"] }
+rayon = "1.10"
+clap = { version = "4", features = ["derive", "env"] }
+indicatif = "0.17"
+memmap2 = "0.9"
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.7", features = ["macros"] }
+futures = "0.3"
+futures-util = "0.3"
+pyo3 = { version = "0.23", features = ["extension-module"], optional = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+rand = "0.8"
+proptest = "1.5"
+
+[[bench]]
+name = "bench_main"
+harness = false
+
+[[bin]]
+name = "aether-bench"
+path = "benches/runner.rs"
+
+[[bin]]
+name = "aether-profile"
+path = "benches/profile.rs"
+
+[[bin]]
+name = "aether-memory"
+path = "benches/memory_validate.rs"
+
+# [[bin]]
+# name = "aether-constrained"
+# path = "benches/constrained.rs"
+
+[[bin]]
+name = "aether"
+path = "src/bin/aether.rs"
+
+[[bin]]
+name = "dump-logits"
+path = "src/bin/dump_logits.rs"
+
+[[bin]]
+name = "aether-server"
+path = "src/bin/aether_server.rs"
+
+[[bin]]
+name = "stress-test"
+path = "src/bin/stress_test.rs"
+
+[[bench]]
+name = "aether_suite"
+path = "benches/aether_bench.rs"
+harness = false
+
+[lib]
+name = "aether"
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = ["accelerate"]
+accelerate = []
+python = ["pyo3"]
+cuda = []
+gpu-tests = []     # `cargo test --features gpu-tests` enables GPU decode tests
+

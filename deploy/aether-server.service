@@ -1,0 +1,30 @@
+[Unit]
+Description=Aether Private LLM Server
+After=network.target
+
+[Service]
+Type=simple
+User=aether
+Group=aether
+ExecStart=/usr/local/bin/aether-server
+Restart=on-failure
+RestartSec=5
+
+# Required: set these for your deployment
+Environment=AETHER_MODEL_PATH=/var/lib/aether/model.gguf
+Environment=AETHER_API_KEY=CHANGE_ME
+Environment=AETHER_HOST=127.0.0.1
+Environment=AETHER_PORT=8080
+Environment=AETHER_CPU_ONLY=1
+Environment=AETHER_MAX_TOKENS=512
+Environment=AETHER_RATE_LIMIT=30
+Environment=RUST_LOG=aether=info,aether_server=info
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/aether
+
+[Install]
+WantedBy=multi-user.target

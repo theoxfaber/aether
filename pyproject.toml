@@ -1,0 +1,31 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "aether-inference"
+version = "0.2.0"
+description = "Fast LLM inference engine with GPU acceleration"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Aether Contributors" },
+]
+requires-python = ">=3.9"
+keywords = ["llm", "inference", "llama", "gguf", "machine-learning"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[tool.maturin]
+features = ["python", "accelerate"]
+module-name = "aether_inference"
