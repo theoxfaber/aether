@@ -1,6 +1,7 @@
 // SAFETY: This module contains x86_64 AVX2 SIMD intrinsics which are inherently unsafe.
 // The functions are only compiled on x86_64 targets and check for AVX2 support at runtime.
 #![allow(unsafe_code)]
+#![allow(clippy::missing_safety_doc)]
 use super::dequant::{dequant_q4_k_block, dequant_q5_k_block, dequant_q6_k_block};
 use crate::quant::matmul::common::{
     Q4K_BLOCK_BYTES, Q4K_BLOCK_SIZE, Q5K_BLOCK_BYTES, Q5K_BLOCK_SIZE, Q6K_BLOCK_BYTES,
@@ -336,7 +337,7 @@ pub unsafe fn matmul_q3_k(a: &[f32], b_quant: &[u8], m: usize, n: usize, k: usiz
                 }
                 for i in 0..4 {
                     let b = sr[i + 8];
-                    sc[i] |= ((b >> 0) as i16 & 0x03) << 4;
+                    sc[i] |= (b as i16 & 0x03) << 4;
                     sc[i + 4] |= ((b >> 2) as i16 & 0x03) << 4;
                     sc[i + 8] |= ((b >> 4) as i16 & 0x03) << 4;
                     sc[i + 12] |= ((b >> 6) as i16 & 0x03) << 4;
