@@ -147,11 +147,11 @@ impl BufferRegistry {
                 Dtype::BF16 => 2,
             };
             let byte_size = shape.num_elements() * element_size;
-            let location = match device {
-                Device::Wgpu => BufferLocation::Gpu,
-                Device::Cpu => BufferLocation::Cpu,
-                _ => BufferLocation::Cpu,
-            };
+            // Plan tensors start as CPU-resident (no dynamic buffer allocated).
+            // ensure_gpu will lazily copy from the arena into a dynamic buffer
+            // when a non-view dispatch path accesses the tensor.
+            let _ = device; // used for arena-backed plan tensors; suppress unused warning
+            let location = BufferLocation::Cpu;
             registry
                 .entries
                 .lock()
@@ -245,10 +245,40 @@ impl BufferRegistry {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<Arc<wgpu::Buffer>, crate::Error> {
-        // If it's in the static plan, return the gpu_arena
-        if self.gpu_plan.contains_key(&id) {
+        // If this tensor is backed by the static GPU arena but hasn't been
+        // dynamically allocated yet, copy from the arena into a new dynamic buffer.
+        // This path is a safety net for non-view dispatch that calls ensure_gpu
+        // (instead of get_gpu_view) on a plan tensor.
+        if let Some(alloc) = self.gpu_plan.get(&id) {
             if let Some(ref arena) = self.gpu_arena {
-                return Ok(arena.clone());
+                let byte_size = alloc.size;
+                let new_buf = Arc::new(device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("Dynamic buffer from arena"),
+                    size: byte_size as u64,
+                    usage: wgpu::BufferUsages::STORAGE
+                        | wgpu::BufferUsages::COPY_DST
+                        | wgpu::BufferUsages::COPY_SRC,
+                    mapped_at_creation: false,
+                }));
+                let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("arena_to_dynamic_copy"),
+                });
+                encoder.copy_buffer_to_buffer(
+                    arena,
+                    alloc.offset as u64,
+                    &new_buf,
+                    0,
+                    byte_size as u64,
+                );
+                queue.submit(Some(encoder.finish()));
+
+                // Update the entry so subsequent ensure_gpu calls return the dynamic buffer
+                let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(entry) = entries.get_mut(&id) {
+                    entry.gpu_buffer = Some(new_buf.clone());
+                    entry.location = BufferLocation::Both;
+                }
+                return Ok(new_buf);
             }
         }
 

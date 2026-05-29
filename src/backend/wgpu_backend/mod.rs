@@ -1855,6 +1855,70 @@ pub mod wgpu_backend_mod {
             self.inner.queue.submit(Some(encoder.finish()));
         }
 
+        /// Execute BatchedMatMul writing into a pre-existing output view (zero allocation).
+        pub fn execute_batched_matmul_view(
+            &self,
+            a_view: &crate::memory::registry::GpuBufferView,
+            b_view: &crate::memory::registry::GpuBufferView,
+            out_view: &crate::memory::registry::GpuBufferView,
+            b: u32,
+            m: u32,
+            n: u32,
+            k: u32,
+        ) {
+            let dims = BatchedMatmulDims { b, m, n, k };
+            self.inner.queue.write_buffer(
+                &self.inner.uniform_scratch,
+                0,
+                bytemuck::bytes_of(&dims),
+            );
+
+            let bind_group_layout = self.inner.batched_matmul_pipeline.get_bind_group_layout(0);
+            let bind_group = self
+                .inner
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("BatchedMatMul View BindGroup"),
+                    layout: &bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: a_view.as_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: b_view.as_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: out_view.as_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: self.inner.uniform_scratch.as_entire_binding(),
+                        },
+                    ],
+                });
+            let mut encoder =
+                self.inner
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("BatchedMatMul View Encoder"),
+                    });
+            {
+                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("BatchedMatMul View Pass"),
+                    timestamp_writes: None,
+                });
+                pass.set_pipeline(&self.inner.batched_matmul_pipeline);
+                pass.set_bind_group(0, &bind_group, &[]);
+                let wg_x = n.div_ceil(64);
+                let wg_y = m.div_ceil(64);
+                pass.dispatch_workgroups(wg_x, wg_y, b);
+            }
+            self.inner.queue.submit(Some(encoder.finish()));
+        }
+
         /// Execute fused MatMul+ReLU writing into a pre-existing output view (zero allocation).
         pub fn execute_matmul_relu_view(
             &self,

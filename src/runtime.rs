@@ -107,7 +107,7 @@ pub mod runtime_mod {
             map
         };
 
-        let (gpu_plan, cpu_plan) = {
+        let (gpu_plan, _cpu_plan) = {
             let inner = target.graph.inner.read().unwrap();
             let dag = &inner.dag;
             let target_tid = dag[target.id].tensor_id;
@@ -151,20 +151,71 @@ pub mod runtime_mod {
             (gpu_p, cpu_p)
         };
 
-        // 4c. Arena pre-allocation (computed for diagnostics and future custom kernel use).
-        // NOTE: GPU arena dispatch is disabled: WebGPU does not permit the same buffer object
-        //       to be bound as STORAGE_READ and STORAGE_READ_WRITE simultaneously, even at
-        //       different byte offsets. The arena pointer and plan are available for profiling.
-        // NOTE: CPU arena dispatch is disabled pending integration with ensure_cpu path.
-        let _gpu_arena_size = gpu_plan.total_size;
-        let _cpu_arena_size = cpu_plan.total_size;
+        // 4c. Pre-allocate GPU/CPU arena buffers for static memory plan.
+        let gpu_arena: Option<Arc<wgpu::Buffer>> = if target_device == Device::Wgpu
+            && gpu_plan.total_size > 0
+        {
+            let backend = WgpuBackend::get_or_init()?;
+            let dev = backend.device();
+            Some(Arc::new(dev.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("GPU Static Arena"),
+                size: gpu_plan.total_size as u64,
+                usage: wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_SRC
+                    | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            })))
+        } else {
+            None
+        };
 
-        // 5. Initialize BufferRegistry (classic dynamic mode — arenas passed as None)
+        // NOTE: CPU tensors remain dynamically managed (register_cpu / ensure_cpu).
+        // The CPU arena path (execute_cpu_op_slices) is not wired into the op dispatch;
+        // passing a CPU arena would cause ensure_cpu to read stale zeros from it.
+
+        // 4d. Build intermediate GPU tensor metadata (shapes, dtypes) for all
+        //     non-input tensors produced by the schedule. Only GPU intermediates
+        //     are pre-registered; CPU intermediates are handled dynamically.
+        let input_tensors = target.graph.input_tensors();
+        let input_ids: std::collections::HashSet<TensorId> =
+            input_tensors.iter().map(|t| t.id()).collect();
+        let intermediate_metadata = if target_device == Device::Wgpu {
+            let inner = target.graph.inner.read().unwrap();
+            let dag = &inner.dag;
+            let mut meta = std::collections::HashMap::new();
+            for step in &schedule {
+                if let ScheduledOp::Plain(node_id, _) = step {
+                    let tid = dag[*node_id].tensor_id;
+                    if !input_ids.contains(&tid) {
+                        meta.entry(tid).or_insert_with(|| {
+                            (
+                                dag[*node_id].shape.clone(),
+                                dag[*node_id].dtype,
+                                target_device,
+                            )
+                        });
+                    }
+                }
+            }
+            meta
+        } else {
+            std::collections::HashMap::new()
+        };
+
+        // 5. Initialize BufferRegistry (static arena mode for GPU — views for plan
+        //    tensors, dynamic fallback for ops not yet migrated to view dispatch).
         let limit = target.graph.gpu_byte_limit();
-        let registry = BufferRegistry::new(limit);
+        let registry = BufferRegistry::new_static(
+            limit,
+            gpu_arena,
+            gpu_plan.allocations,
+            None,                               // cpu_arena — dynamically managed
+            std::collections::HashMap::new(),    // cpu_plan  — empty: CPU tensors are not arena-backed
+            intermediate_metadata,
+        );
 
         // 6. Register all input tensors in registry
-        for input_tensor in target.graph.input_tensors() {
+        for input_tensor in &input_tensors {
             registry.register_cpu(
                 input_tensor.id(),
                 input_tensor.data_raw().to_f32(),
@@ -638,8 +689,8 @@ pub mod runtime_mod {
                         let lhs_tid = dag[inputs[0]].tensor_id;
                         let rhs_tid = dag[inputs[1]].tensor_id;
 
-                        let lhs_buf = registry.ensure_gpu(lhs_tid, wgpu_device, queue)?;
-                        let rhs_buf = registry.ensure_gpu(rhs_tid, wgpu_device, queue)?;
+                        let lhs_view = registry.get_gpu_view(lhs_tid, wgpu_device, queue)?;
+                        let rhs_view = registry.get_gpu_view(rhs_tid, wgpu_device, queue)?;
                         registry.touch(lhs_tid, op_idx)?;
                         registry.touch(rhs_tid, op_idx)?;
 
@@ -649,14 +700,11 @@ pub mod runtime_mod {
                         let k = lhs_shape[1] as u32;
                         let n = rhs_shape[1] as u32;
 
-                        let output_buf =
-                            wgpu_backend.execute_matmul_buffers(&lhs_buf, &rhs_buf, m, n, k)?;
-                        registry.register_gpu(
-                            output_tid,
-                            Arc::new(output_buf),
-                            output_shape,
-                            dag[*node_id].dtype,
-                        )?;
+                        let out_view =
+                            registry.get_gpu_view(output_tid, wgpu_device, queue)?;
+                        wgpu_backend.execute_matmul_view(
+                            &lhs_view, &rhs_view, &out_view, m, n, k,
+                        );
                         registry.touch(output_tid, op_idx)?;
                     }
                     Op::Transpose => {
@@ -871,8 +919,8 @@ pub mod runtime_mod {
                         let lhs_tid = dag[inputs[0]].tensor_id;
                         let rhs_tid = dag[inputs[1]].tensor_id;
 
-                        let lhs_buf = registry.ensure_gpu(lhs_tid, wgpu_device, queue)?;
-                        let rhs_buf = registry.ensure_gpu(rhs_tid, wgpu_device, queue)?;
+                        let lhs_view = registry.get_gpu_view(lhs_tid, wgpu_device, queue)?;
+                        let rhs_view = registry.get_gpu_view(rhs_tid, wgpu_device, queue)?;
                         registry.touch(lhs_tid, op_idx)?;
                         registry.touch(rhs_tid, op_idx)?;
 
@@ -883,14 +931,11 @@ pub mod runtime_mod {
                         let k = lhs_shape[2] as u32;
                         let n = rhs_shape[2] as u32;
 
-                        let output_buf = wgpu_backend
-                            .execute_batched_matmul_buffers(&lhs_buf, &rhs_buf, b, m, n, k)?;
-                        registry.register_gpu(
-                            output_tid,
-                            Arc::new(output_buf),
-                            output_shape,
-                            dag[*node_id].dtype,
-                        )?;
+                        let out_view =
+                            registry.get_gpu_view(output_tid, wgpu_device, queue)?;
+                        wgpu_backend.execute_batched_matmul_view(
+                            &lhs_view, &rhs_view, &out_view, b, m, n, k,
+                        );
                         registry.touch(output_tid, op_idx)?;
                     }
                     Op::BatchedTranspose => {
