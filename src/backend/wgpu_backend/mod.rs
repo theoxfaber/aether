@@ -952,11 +952,7 @@ pub mod wgpu_backend_mod {
                 })
         }
 
-        pub fn create_quant_buffer(
-            &self,
-            data: &[u8],
-            usage: wgpu::BufferUsages,
-        ) -> wgpu::Buffer {
+        pub fn create_quant_buffer(&self, data: &[u8], usage: wgpu::BufferUsages) -> wgpu::Buffer {
             self.inner
                 .device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -2272,13 +2268,20 @@ pub mod wgpu_backend_mod {
                 mapped_at_creation: false,
             });
 
-            let dims = MatmulDims { m, n, k, padding: 0 };
+            let dims = MatmulDims {
+                m,
+                n,
+                k,
+                padding: 0,
+            };
             let dims_buf =
-                self.inner.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("MatMul Q8_0 Dims Uniform Buffer"),
-                    contents: bytemuck::bytes_of(&dims),
-                    usage: wgpu::BufferUsages::UNIFORM,
-                });
+                self.inner
+                    .device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("MatMul Q8_0 Dims Uniform Buffer"),
+                        contents: bytemuck::bytes_of(&dims),
+                        usage: wgpu::BufferUsages::UNIFORM,
+                    });
 
             let pipeline = &self.inner.matmul_q8_0_pipeline;
             let bind_group_layout = pipeline.get_bind_group_layout(0);
@@ -2289,10 +2292,22 @@ pub mod wgpu_backend_mod {
                     label: Some("MatMul Q8_0 Bind Group"),
                     layout: &bind_group_layout,
                     entries: &[
-                        wgpu::BindGroupEntry { binding: 0, resource: a_buf.as_entire_binding() },
-                        wgpu::BindGroupEntry { binding: 1, resource: b_buf.as_entire_binding() },
-                        wgpu::BindGroupEntry { binding: 2, resource: c_buf.as_entire_binding() },
-                        wgpu::BindGroupEntry { binding: 3, resource: dims_buf.as_entire_binding() },
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: a_buf.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: b_buf.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: c_buf.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: dims_buf.as_entire_binding(),
+                        },
                     ],
                 });
 
@@ -2330,13 +2345,20 @@ pub mod wgpu_backend_mod {
                 mapped_at_creation: false,
             });
 
-            let dims = MatmulDims { m, n, k, padding: 0 };
+            let dims = MatmulDims {
+                m,
+                n,
+                k,
+                padding: 0,
+            };
             let dims_buf =
-                self.inner.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("MatMul Q4_K Dims Uniform Buffer"),
-                    contents: bytemuck::bytes_of(&dims),
-                    usage: wgpu::BufferUsages::UNIFORM,
-                });
+                self.inner
+                    .device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("MatMul Q4_K Dims Uniform Buffer"),
+                        contents: bytemuck::bytes_of(&dims),
+                        usage: wgpu::BufferUsages::UNIFORM,
+                    });
 
             let pipeline = &self.inner.matmul_q4_k_pipeline;
             let bind_group_layout = pipeline.get_bind_group_layout(0);
@@ -2347,10 +2369,22 @@ pub mod wgpu_backend_mod {
                     label: Some("MatMul Q4_K Bind Group"),
                     layout: &bind_group_layout,
                     entries: &[
-                        wgpu::BindGroupEntry { binding: 0, resource: a_buf.as_entire_binding() },
-                        wgpu::BindGroupEntry { binding: 1, resource: b_buf.as_entire_binding() },
-                        wgpu::BindGroupEntry { binding: 2, resource: c_buf.as_entire_binding() },
-                        wgpu::BindGroupEntry { binding: 3, resource: dims_buf.as_entire_binding() },
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: a_buf.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: b_buf.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: c_buf.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: dims_buf.as_entire_binding(),
+                        },
                     ],
                 });
 

@@ -82,7 +82,11 @@ fn main() -> Result<(), Error> {
             model_bytes: 0,
         },
     };
-    let mut runner2 = LlamaRunner::new_with_context(ctx, &aether::tokenizer::Tokenizer::from_gguf(&gguf).unwrap(), &la);
+    let mut runner2 = LlamaRunner::new_with_context(
+        ctx,
+        &aether::tokenizer::Tokenizer::from_gguf(&gguf).unwrap(),
+        &la,
+    );
     runner2.kv.reset();
     let token_ids2 = runner2.tokenizer.encode("The capital of France is", true);
     let mut last_logits_f32 = vec![0f32; vocab_size];

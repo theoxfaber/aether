@@ -308,7 +308,12 @@ async fn main() {
     let rate_limiter = Arc::new(RateLimiter::new(args.rate_limit));
 
     let concurrency = args.max_concurrency.max(1);
-    let pool = RunnerPool::new(runner.ctx, &runner.tokenizer, &layer_assignment, concurrency);
+    let pool = RunnerPool::new(
+        runner.ctx,
+        &runner.tokenizer,
+        &layer_assignment,
+        concurrency,
+    );
     let state = Arc::new(ServerState {
         pool,
         model_name: model_name.clone(),

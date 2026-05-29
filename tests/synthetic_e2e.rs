@@ -34,9 +34,9 @@ fn build_synthetic_model() -> Vec<u8> {
 
     // ── Header ────────────────────────────────────────────────────────────
     write_u32(&mut buf, 0x46554747); // magic
-    write_u32(&mut buf, 3);          // version
-    write_u64(&mut buf, 0);          // tensor_count (patched later)
-    write_u64(&mut buf, 11);         // metadata_kv_count
+    write_u32(&mut buf, 3); // version
+    write_u64(&mut buf, 0); // tensor_count (patched later)
+    write_u64(&mut buf, 11); // metadata_kv_count
 
     // ── Metadata ──────────────────────────────────────────────────────────
     write_string(&mut buf, "general.architecture");
@@ -80,9 +80,9 @@ fn build_synthetic_model() -> Vec<u8> {
     write_u32(&mut buf, 1);
 
     write_string(&mut buf, "tokenizer.ggml.tokens");
-    write_u32(&mut buf, 9);  // Array
-    write_u32(&mut buf, 8);  // element type = String
-    write_u64(&mut buf, 8);  // count
+    write_u32(&mut buf, 9); // Array
+    write_u32(&mut buf, 8); // element type = String
+    write_u64(&mut buf, 8); // count
     for t in &["<unk>", "<s>", "</s>", "a", "b", "c", "d", "e"] {
         write_string(&mut buf, t);
     }
@@ -127,39 +127,75 @@ fn build_synthetic_model() -> Vec<u8> {
         let p = format!("blk.{}.", li);
 
         // attn_norm.weight [d_model]
-        tensors.push(TensorEntry { name: format!("{}attn_norm.weight", p), shape: vec![d_model as u64], offset: cur });
+        tensors.push(TensorEntry {
+            name: format!("{}attn_norm.weight", p),
+            shape: vec![d_model as u64],
+            offset: cur,
+        });
         cur += byte_size(&[d_model as u64]);
 
         // attn_q.weight [d_model, d_model]
-        tensors.push(TensorEntry { name: format!("{}attn_q.weight", p), shape: vec![d_model as u64, d_model as u64], offset: cur });
+        tensors.push(TensorEntry {
+            name: format!("{}attn_q.weight", p),
+            shape: vec![d_model as u64, d_model as u64],
+            offset: cur,
+        });
         cur += byte_size(&[d_model as u64, d_model as u64]);
 
         // attn_k.weight [d_model, d_model]
-        tensors.push(TensorEntry { name: format!("{}attn_k.weight", p), shape: vec![d_model as u64, d_model as u64], offset: cur });
+        tensors.push(TensorEntry {
+            name: format!("{}attn_k.weight", p),
+            shape: vec![d_model as u64, d_model as u64],
+            offset: cur,
+        });
         cur += byte_size(&[d_model as u64, d_model as u64]);
 
         // attn_v.weight [d_model, d_model]
-        tensors.push(TensorEntry { name: format!("{}attn_v.weight", p), shape: vec![d_model as u64, d_model as u64], offset: cur });
+        tensors.push(TensorEntry {
+            name: format!("{}attn_v.weight", p),
+            shape: vec![d_model as u64, d_model as u64],
+            offset: cur,
+        });
         cur += byte_size(&[d_model as u64, d_model as u64]);
 
         // attn_output.weight [d_model, d_model]
-        tensors.push(TensorEntry { name: format!("{}attn_output.weight", p), shape: vec![d_model as u64, d_model as u64], offset: cur });
+        tensors.push(TensorEntry {
+            name: format!("{}attn_output.weight", p),
+            shape: vec![d_model as u64, d_model as u64],
+            offset: cur,
+        });
         cur += byte_size(&[d_model as u64, d_model as u64]);
 
         // ffn_norm.weight [d_model]
-        tensors.push(TensorEntry { name: format!("{}ffn_norm.weight", p), shape: vec![d_model as u64], offset: cur });
+        tensors.push(TensorEntry {
+            name: format!("{}ffn_norm.weight", p),
+            shape: vec![d_model as u64],
+            offset: cur,
+        });
         cur += byte_size(&[d_model as u64]);
 
         // ffn_gate.weight [d_model, d_ff]
-        tensors.push(TensorEntry { name: format!("{}ffn_gate.weight", p), shape: vec![d_model as u64, d_ff as u64], offset: cur });
+        tensors.push(TensorEntry {
+            name: format!("{}ffn_gate.weight", p),
+            shape: vec![d_model as u64, d_ff as u64],
+            offset: cur,
+        });
         cur += byte_size(&[d_model as u64, d_ff as u64]);
 
         // ffn_up.weight [d_model, d_ff]
-        tensors.push(TensorEntry { name: format!("{}ffn_up.weight", p), shape: vec![d_model as u64, d_ff as u64], offset: cur });
+        tensors.push(TensorEntry {
+            name: format!("{}ffn_up.weight", p),
+            shape: vec![d_model as u64, d_ff as u64],
+            offset: cur,
+        });
         cur += byte_size(&[d_model as u64, d_ff as u64]);
 
         // ffn_down.weight [d_ff, d_model]
-        tensors.push(TensorEntry { name: format!("{}ffn_down.weight", p), shape: vec![d_ff as u64, d_model as u64], offset: cur });
+        tensors.push(TensorEntry {
+            name: format!("{}ffn_down.weight", p),
+            shape: vec![d_ff as u64, d_model as u64],
+            offset: cur,
+        });
         cur += byte_size(&[d_ff as u64, d_model as u64]);
     }
 

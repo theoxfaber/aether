@@ -176,9 +176,20 @@ impl LlamaRunner {
         streaming_max_hot: Option<usize>,
         options: LoadOptions,
     ) -> Result<Self, Error> {
-        let (ctx, kv, tokenizer, telemetry, rope_sin, rope_cos, scratch,
-             kv_cache_k_gpu, kv_cache_v_gpu, cfg, layer_assignment, layer_cache) =
-            Self::load_context(path, streaming_max_hot, options)?;
+        let (
+            ctx,
+            kv,
+            tokenizer,
+            telemetry,
+            rope_sin,
+            rope_cos,
+            scratch,
+            kv_cache_k_gpu,
+            kv_cache_v_gpu,
+            cfg,
+            layer_assignment,
+            layer_cache,
+        ) = Self::load_context(path, streaming_max_hot, options)?;
         Ok(Self {
             ctx,
             kv,
@@ -202,8 +213,11 @@ impl LlamaRunner {
     ///
     /// Each runner gets its own KV cache, scratch space, and GPU KV cache
     /// buffers so multiple requests can be processed concurrently.
-    pub fn new_with_context(ctx: Arc<InferenceContext>, tokenizer: &Tokenizer,
-                            layer_assignment: &LayerAssignment) -> Self {
+    pub fn new_with_context(
+        ctx: Arc<InferenceContext>,
+        tokenizer: &Tokenizer,
+        layer_assignment: &LayerAssignment,
+    ) -> Self {
         let cfg = ctx.model.config.clone();
         let num_layers = cfg.num_layers;
         let n_kv_heads = cfg.num_kv_heads;
@@ -282,11 +296,21 @@ impl LlamaRunner {
         streaming_max_hot: Option<usize>,
         options: LoadOptions,
     ) -> Result<
-        (Arc<InferenceContext>, StaticKVCache, Tokenizer, ExecutionTelemetry,
-         Vec<f32>, Vec<f32>, ScratchSpace,
-         Vec<wgpu::Buffer>, Vec<wgpu::Buffer>,
-         LlamaConfig, LayerAssignment, Option<LayerCache>),
-        Error
+        (
+            Arc<InferenceContext>,
+            StaticKVCache,
+            Tokenizer,
+            ExecutionTelemetry,
+            Vec<f32>,
+            Vec<f32>,
+            ScratchSpace,
+            Vec<wgpu::Buffer>,
+            Vec<wgpu::Buffer>,
+            LlamaConfig,
+            LayerAssignment,
+            Option<LayerCache>,
+        ),
+        Error,
     > {
         let load_start = Instant::now();
         info!("Loading {}...", path);
@@ -467,44 +491,39 @@ impl LlamaRunner {
             if let Some(ref backend) = wgpu_backend {
                 for (i, layer) in model.layers.iter().enumerate() {
                     if layer_assignment.device_for_layer(i) == Device::Wgpu {
-                        let upload =
-                            |qw: &QuantWeight| -> QuantGpuWeight {
-                                match qw.dtype {
-                                    GGUFDtype::Q8_0 | GGUFDtype::Q4_K => {
-                                        let mut padded = qw.data.to_vec();
-                                        while !padded.len().is_multiple_of(4) {
-                                            padded.push(0);
-                                        }
-                                        let buffer = backend.create_quant_buffer(
-                                            &padded,
-                                            wgpu::BufferUsages::STORAGE,
-                                        );
-                                        QuantGpuWeight {
-                                            buffer,
-                                            dtype: qw.dtype,
-                                        }
+                        let upload = |qw: &QuantWeight| -> QuantGpuWeight {
+                            match qw.dtype {
+                                GGUFDtype::Q8_0 | GGUFDtype::Q4_K => {
+                                    let mut padded = qw.data.to_vec();
+                                    while !padded.len().is_multiple_of(4) {
+                                        padded.push(0);
                                     }
-                                    _ => {
-                                        let buf = if let Ok(buf) = backend.dequantize_on_gpu(
-                                            &qw.data,
-                                            qw.dtype,
-                                            &qw.shape,
-                                        ) {
-                                            buf
-                                        } else {
-                                            let dequant = dequantize(&qw.data, qw.dtype, &qw.shape);
-                                            backend.create_buffer_with_data(
-                                                &dequant,
-                                                wgpu::BufferUsages::STORAGE,
-                                            )
-                                        };
-                                        QuantGpuWeight {
-                                            buffer: buf,
-                                            dtype: GGUFDtype::F32,
-                                        }
+                                    let buffer = backend
+                                        .create_quant_buffer(&padded, wgpu::BufferUsages::STORAGE);
+                                    QuantGpuWeight {
+                                        buffer,
+                                        dtype: qw.dtype,
                                     }
                                 }
-                            };
+                                _ => {
+                                    let buf = if let Ok(buf) =
+                                        backend.dequantize_on_gpu(&qw.data, qw.dtype, &qw.shape)
+                                    {
+                                        buf
+                                    } else {
+                                        let dequant = dequantize(&qw.data, qw.dtype, &qw.shape);
+                                        backend.create_buffer_with_data(
+                                            &dequant,
+                                            wgpu::BufferUsages::STORAGE,
+                                        )
+                                    };
+                                    QuantGpuWeight {
+                                        buffer: buf,
+                                        dtype: GGUFDtype::F32,
+                                    }
+                                }
+                            }
+                        };
 
                         gpu_weights.push(Some(LlamaLayerGpuWeights {
                             q_proj: upload(&layer.q_proj),
@@ -535,8 +554,20 @@ impl LlamaRunner {
             gguf: gguf_arc,
         });
 
-        Ok((ctx, kv, tokenizer, telemetry, rope_sin, rope_cos, scratch,
-            kv_cache_k_gpu, kv_cache_v_gpu, cfg, layer_assignment, layer_cache))
+        Ok((
+            ctx,
+            kv,
+            tokenizer,
+            telemetry,
+            rope_sin,
+            rope_cos,
+            scratch,
+            kv_cache_k_gpu,
+            kv_cache_v_gpu,
+            cfg,
+            layer_assignment,
+            layer_cache,
+        ))
     }
 
     /// Generate text from a prompt using autoregressive decoding.
@@ -1207,21 +1238,30 @@ impl LlamaRunner {
             k: u32,
         ) -> Result<wgpu::Buffer, crate::Error> {
             match weight.dtype {
-                GGUFDtype::Q8_0 => {
-                    backend.execute_matmul_q8_0_buffers_with_encoder(
-                        encoder, a_buf, &weight.buffer, m, n, k,
-                    )
-                }
-                GGUFDtype::Q4_K => {
-                    backend.execute_matmul_q4_k_buffers_with_encoder(
-                        encoder, a_buf, &weight.buffer, m, n, k,
-                    )
-                }
-                _ => {
-                    backend.execute_matmul_buffers_with_encoder(
-                        encoder, a_buf, &weight.buffer, m, n, k,
-                    )
-                }
+                GGUFDtype::Q8_0 => backend.execute_matmul_q8_0_buffers_with_encoder(
+                    encoder,
+                    a_buf,
+                    &weight.buffer,
+                    m,
+                    n,
+                    k,
+                ),
+                GGUFDtype::Q4_K => backend.execute_matmul_q4_k_buffers_with_encoder(
+                    encoder,
+                    a_buf,
+                    &weight.buffer,
+                    m,
+                    n,
+                    k,
+                ),
+                _ => backend.execute_matmul_buffers_with_encoder(
+                    encoder,
+                    a_buf,
+                    &weight.buffer,
+                    m,
+                    n,
+                    k,
+                ),
             }
         }
 
@@ -1244,24 +1284,21 @@ impl LlamaRunner {
             let lt = &mut layer_tel[layer_idx];
 
             if self.layer_assignment.device_for_layer(layer_idx) == Device::Wgpu {
-                let backend = self
-                    .ctx
-                    .wgpu_backend
-                    .as_ref()
-                    .ok_or_else(|| Error::ExecutionError("GPU buffer not initialized".into()))?;
+                let backend =
+                    self.ctx.wgpu_backend.as_ref().ok_or_else(|| {
+                        Error::ExecutionError("GPU buffer not initialized".into())
+                    })?;
                 let gw = self.ctx.gpu_weights[layer_idx]
                     .as_ref()
                     .ok_or_else(|| Error::ExecutionError("GPU buffer not initialized".into()))?;
-                let rsin = self
-                    .ctx
-                    .rope_sin_gpu
-                    .as_ref()
-                    .ok_or_else(|| Error::ExecutionError("GPU buffer not initialized".into()))?;
-                let rcos = self
-                    .ctx
-                    .rope_cos_gpu
-                    .as_ref()
-                    .ok_or_else(|| Error::ExecutionError("GPU buffer not initialized".into()))?;
+                let rsin =
+                    self.ctx.rope_sin_gpu.as_ref().ok_or_else(|| {
+                        Error::ExecutionError("GPU buffer not initialized".into())
+                    })?;
+                let rcos =
+                    self.ctx.rope_cos_gpu.as_ref().ok_or_else(|| {
+                        Error::ExecutionError("GPU buffer not initialized".into())
+                    })?;
                 let kv_k = &self.kv_cache_k_gpu[layer_idx];
                 let kv_v = &self.kv_cache_v_gpu[layer_idx];
                 let head_dim_u = cfg.head_dim as u32;
@@ -1319,33 +1356,9 @@ impl LlamaRunner {
                 );
 
                 let mut enc = backend.create_encoder("qkv_matmul");
-                let q = quant_matmul(
-                    backend,
-                    &mut enc,
-                    &normed_buf,
-                    &gw.q_proj,
-                    1,
-                    d_u,
-                    d_u,
-                )?;
-                let k = quant_matmul(
-                    backend,
-                    &mut enc,
-                    &normed_buf,
-                    &gw.k_proj,
-                    1,
-                    kv_d_u,
-                    d_u,
-                )?;
-                let v = quant_matmul(
-                    backend,
-                    &mut enc,
-                    &normed_buf,
-                    &gw.v_proj,
-                    1,
-                    kv_d_u,
-                    d_u,
-                )?;
+                let q = quant_matmul(backend, &mut enc, &normed_buf, &gw.q_proj, 1, d_u, d_u)?;
+                let k = quant_matmul(backend, &mut enc, &normed_buf, &gw.k_proj, 1, kv_d_u, d_u)?;
+                let v = quant_matmul(backend, &mut enc, &normed_buf, &gw.v_proj, 1, kv_d_u, d_u)?;
                 backend.submit_encoder(enc);
 
                 backend.execute_rope_buffers(&q, 1, n_h_u, head_dim_u, pos as u32, rsin, rcos)?;
@@ -1460,9 +1473,8 @@ impl LlamaRunner {
                 }
 
                 let mut enc3 = backend.create_encoder("output_proj");
-                let attn_proj = quant_matmul(
-                    backend, &mut enc3, &attn_out, &gw.o_proj, 1, d_u, d_u,
-                )?;
+                let attn_proj =
+                    quant_matmul(backend, &mut enc3, &attn_out, &gw.o_proj, 1, d_u, d_u)?;
                 let x_new = backend.execute_add_buffers_with_encoder(
                     &mut enc3,
                     &residual_buf,
@@ -1508,15 +1520,8 @@ impl LlamaRunner {
                 let silu_out = backend.execute_silu_mul_buffers(&gate, &up, 1, d_ff_u)?;
 
                 let mut enc5 = backend.create_encoder("ffn_down");
-                let mlp_out = quant_matmul(
-                    backend,
-                    &mut enc5,
-                    &silu_out,
-                    &gw.down_proj,
-                    1,
-                    d_u,
-                    d_ff_u,
-                )?;
+                let mlp_out =
+                    quant_matmul(backend, &mut enc5, &silu_out, &gw.down_proj, 1, d_u, d_ff_u)?;
                 let x_final = backend.execute_add_buffers_with_encoder(
                     &mut enc5,
                     &x_new,
@@ -2132,7 +2137,6 @@ impl RunnerPool {
             permit,
         }
     }
-
 }
 
 /// RAII guard returned by [`RunnerPool::acquire`].

@@ -114,7 +114,9 @@ pub extern "C" fn aether_free(model: *mut AetherModel) {
 
 #[no_mangle]
 pub extern "C" fn aether_vocab_size(model: *const AetherModel) -> i32 {
-    with_model(model, |inner| inner.runner.ctx.model.config.vocab_size as i32)
+    with_model(model, |inner| {
+        inner.runner.ctx.model.config.vocab_size as i32
+    })
 }
 
 #[no_mangle]
@@ -126,7 +128,9 @@ pub extern "C" fn aether_context_len(model: *const AetherModel) -> i32 {
 
 #[no_mangle]
 pub extern "C" fn aether_num_layers(model: *const AetherModel) -> i32 {
-    with_model(model, |inner| inner.runner.ctx.model.config.num_layers as i32)
+    with_model(model, |inner| {
+        inner.runner.ctx.model.config.num_layers as i32
+    })
 }
 
 #[no_mangle]
