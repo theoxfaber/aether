@@ -9,6 +9,7 @@ use std::collections::HashMap;
 /// - Byte-fallback tokens `<0xNN>` decoded by reassembling UTF-8 byte sequences
 /// - BOS/EOS injection
 /// - Temperature + top-p sampling (for decode use)
+#[derive(Clone)]
 pub struct Tokenizer {
     id_to_token: Vec<String>,
     token_to_id: HashMap<String, u32>,

@@ -23,9 +23,9 @@ fn main() -> Result<(), Error> {
         let prompt_len = token_ids.len();
 
         // forward_one_hook for all prompt tokens
-        let mut last_logits = vec![0f32; runner.model.config.vocab_size];
+        let mut last_logits = vec![0f32; runner.ctx.model.config.vocab_size];
         for (pos, &tok) in token_ids.iter().enumerate() {
-            let mut dummy = vec![LayerTelemetry::default(); runner.model.config.num_layers];
+            let mut dummy = vec![LayerTelemetry::default(); runner.ctx.model.config.num_layers];
             last_logits = runner.forward_one_hook(tok, pos, &mut dummy)?;
         }
 
@@ -37,7 +37,7 @@ fn main() -> Result<(), Error> {
 
         for step in 0..49 {
             let pos = prompt_len + step;
-            let mut dummy = vec![LayerTelemetry::default(); runner.model.config.num_layers];
+            let mut dummy = vec![LayerTelemetry::default(); runner.ctx.model.config.num_layers];
             last_logits = runner.forward_one_hook(next_tok, pos, &mut dummy)?;
 
             let prev_set: HashSet<u32> = token_ids.iter().copied().collect();

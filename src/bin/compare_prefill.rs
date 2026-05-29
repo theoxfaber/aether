@@ -27,7 +27,7 @@ fn main() -> Result<(), Error> {
     r2.kv.reset();
     let mut last_logits = vec![0.0f32; logits_batch.len()];
     for pos in 0..prompt.len() {
-        let mut tel = vec![LayerTelemetry::default(); r2.model.config.num_layers];
+        let mut tel = vec![LayerTelemetry::default(); r2.ctx.model.config.num_layers];
         last_logits = r2.forward_one_hook(prompt[pos], pos, &mut tel)?;
     }
     let max_s = last_logits

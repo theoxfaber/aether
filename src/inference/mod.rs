@@ -33,5 +33,5 @@ pub use kv_cache::StaticKVCache;
 pub use model_loader::{
     ArchConfig, LlamaConfig, LlamaLayerWeights, LlamaModel, ModelArchitecture, QuantWeight,
 };
-pub use runner::{LlamaRunner, LoadOptions};
+pub use runner::{InferenceContext, LlamaRunner, LoadOptions, RunnerGuard, RunnerPool};
 pub use telemetry::{ExecutionTelemetry, LayerTelemetry, Stopwatch};

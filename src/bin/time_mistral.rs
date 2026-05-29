@@ -25,7 +25,7 @@ fn main() -> Result<(), Error> {
     for step in 0..9 {
         let pos = tokens.len() + step;
         let t2 = Instant::now();
-        let mut dummy = vec![LayerTelemetry::default(); runner.model.config.num_layers];
+        let mut dummy = vec![LayerTelemetry::default(); runner.ctx.model.config.num_layers];
         last_logits = runner.forward_one_hook(next_tok, pos, &mut dummy)?;
         eprint!(" ({}s)", t2.elapsed().as_secs_f32());
         next_tok = sample(&last_logits, 0.0, 1.0, &HashSet::new(), 1.0);

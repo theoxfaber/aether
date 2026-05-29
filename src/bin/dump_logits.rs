@@ -19,14 +19,14 @@ fn main() -> Result<(), Error> {
     let token_ids = runner.tokenizer.encode(&args.prompt, true);
     eprintln!("Token IDs: {:?}", &token_ids);
     eprintln!("Num tokens: {}", token_ids.len());
-    let _cfg_vocab = runner.model.config.vocab_size;
+    let _cfg_vocab = runner.ctx.model.config.vocab_size;
 
     // Prefill all tokens token-by-token, dumping logits for each
     for (pos, &tok) in token_ids.iter().enumerate() {
         let start = Instant::now();
         let mut dummy_tel = vec![
             aether::inference::telemetry::LayerTelemetry::default();
-            runner.model.config.num_layers
+            runner.ctx.model.config.num_layers
         ];
         let logits = runner.forward_one_hook(tok, pos, &mut dummy_tel)?;
         let elapsed = start.elapsed().as_micros();

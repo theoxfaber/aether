@@ -25,3 +25,25 @@ jobs:
         run: cargo clippy -- -D warnings
       - name: Format
         run: cargo fmt --check
+
+  # GPU tests: runs on ubuntu-latest with software Vulkan (lavapipe/Mesa).
+  # Uses continue-on-error so a missing or broken GPU stack doesn't block CI.
+  gpu-tests:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup update stable && rustup default stable && rustup component add clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Vulkan SDK (lavapipe software renderer)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mesa-vulkan-drivers vulkan-tools
+          vulkaninfo --summary 2>&1 | head -20 || true
+      - name: Build with GPU features
+        run: cargo build --features gpu-tests
+      - name: Run GPU tests
+        run: cargo test --features gpu-tests
+      - name: Clippy (GPU features)
+        run: cargo clippy --features gpu-tests -- -D warnings

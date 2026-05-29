@@ -211,7 +211,7 @@ impl BenchRun {
             let pos = self.prefill_tokens + step;
             let mut step_tel = vec![
                 aether::inference::telemetry::LayerTelemetry::default();
-                runner.model.config.num_layers
+                runner.ctx.model.config.num_layers
             ];
             last_logits = runner.decode_step(prev_token, pos, &mut step_tel)?;
 
@@ -243,7 +243,7 @@ impl BenchRun {
         self.output_text = runner.tokenizer.decode(generated_ids);
 
         // ── Memory ──────────────────────────────────────────────────────
-        let model_bytes = aether::inference::runner::estimate_model_bytes(&runner.model);
+        let model_bytes = aether::inference::runner::estimate_model_bytes(&runner.ctx.model);
         let kv_bytes = runner.kv.size_bytes();
         self.model_mb = model_bytes as f64 / 1e6;
         self.kv_mb = kv_bytes as f64 / 1e6;

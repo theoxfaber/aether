@@ -110,7 +110,7 @@ fn run_scenario(
 
     let load_time_s = load_start.elapsed().as_secs_f64();
 
-    let model_bytes = estimate_model_bytes(&runner.model);
+    let model_bytes = estimate_model_bytes(&runner.ctx.model);
     let kv_bytes = runner.kv.size_bytes();
     let model_mb = model_bytes as f64 / 1e6;
     let kv_mb = kv_bytes as f64 / 1e6;
@@ -189,7 +189,7 @@ fn run_scenario(
         }
 
         let pos = prefill_tokens + step;
-        let mut step_tel = vec![LayerTelemetry::default(); runner.model.config.num_layers];
+        let mut step_tel = vec![LayerTelemetry::default(); runner.ctx.model.config.num_layers];
         let logits = match runner.decode_step(prev_token, pos, &mut step_tel) {
             Ok(l) => l,
             Err(e) => {

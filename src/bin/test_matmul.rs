@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use aether::inference::model_loader::QuantWeight;
 /// Compare Q6_K quantized matmul vs f32 dequantized matmul for lm_head.
 use aether::inference::runner::LlamaRunner;
@@ -44,24 +46,48 @@ fn main() -> Result<(), Error> {
     let token_ids = runner.tokenizer.encode("The capital of France is", true);
     let mut last_logits_q6k = vec![0f32; vocab_size];
     for (pos, &tok) in token_ids.iter().enumerate() {
-        let mut dummy = vec![LayerTelemetry::default(); runner.model.config.num_layers];
+        let mut dummy = vec![LayerTelemetry::default(); runner.ctx.model.config.num_layers];
         last_logits_q6k = runner.forward_one_hook(tok, pos, &mut dummy)?;
     }
     drop(runner);
 
     // Run with F32 lm_head (dequantized weight, f32 matmul)
-    let mut runner2 = LlamaRunner::from_gguf("mistral-7b-q4k.gguf")?;
-    std::sync::Arc::make_mut(&mut runner2.model).lm_head = QuantWeight {
+    // We rebuild the model so lm_head is F32 instead of Q6_K.
+    let gguf = aether::loader::gguf::GGUFLoader::load("mistral-7b-q4k.gguf").unwrap();
+    let config = aether::inference::model_loader::LlamaConfig::from_gguf(&gguf).unwrap();
+    let mut model = aether::inference::model_loader::LlamaModel::from_gguf(&gguf, false).unwrap();
+    model.lm_head = QuantWeight {
         data: SharedBytes::new_owned(bytemuck::cast_slice(&lm_f32).to_vec()),
         dtype: aether::loader::gguf::GGUFDtype::F32,
         shape: vec![vocab_size, d_model],
         f32_data: None,
     };
+    let ctx = Arc::new(aether::inference::runner::InferenceContext {
+        model: Arc::new(model),
+        wgpu_backend: None,
+        gpu_weights: vec![],
+        rope_sin_gpu: None,
+        rope_cos_gpu: None,
+        gguf: None,
+    });
+    let la = aether::scheduler::memory_aware::LayerAssignment {
+        layer_devices: vec![aether::Device::Cpu; config.num_layers],
+        total_model_bytes: 0,
+        gpu_budget: 0,
+        gpu_layers: 0,
+        cpu_layers: config.num_layers,
+        total_ram: 0,
+        memory_plan: aether::scheduler::memory_aware::MemoryPlan::InMemory {
+            total_ram: 0,
+            model_bytes: 0,
+        },
+    };
+    let mut runner2 = LlamaRunner::new_with_context(ctx, &aether::tokenizer::Tokenizer::from_gguf(&gguf).unwrap(), &la);
     runner2.kv.reset();
     let token_ids2 = runner2.tokenizer.encode("The capital of France is", true);
     let mut last_logits_f32 = vec![0f32; vocab_size];
     for (pos, &tok) in token_ids2.iter().enumerate() {
-        let mut dummy = vec![LayerTelemetry::default(); runner2.model.config.num_layers];
+        let mut dummy = vec![LayerTelemetry::default(); runner2.ctx.model.config.num_layers];
         last_logits_f32 = runner2.forward_one_hook(tok, pos, &mut dummy)?;
     }
 

@@ -31,10 +31,9 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tokio::sync::{Mutex as TokioMutex, Semaphore};
 use tracing::{error, info, warn};
 
-use aether::inference::runner::{sample, LlamaRunner, LoadOptions};
+use aether::inference::runner::{sample, LlamaRunner, LoadOptions, RunnerPool};
 
 // ── CLI ────────────────────────────────────────────────────────────────────────
 
@@ -198,8 +197,7 @@ fn default_repetition_penalty() -> f32 {
 // ─── Shared state ─────────────────────────────────────────────────────────────
 
 struct ServerState {
-    runner: Arc<TokioMutex<LlamaRunner>>,
-    concurrency: Arc<Semaphore>,
+    pool: RunnerPool,
     model_name: String,
     model_path: String,
     api_key: Option<String>,
@@ -295,6 +293,7 @@ async fn main() {
 
     let gpu_layers = runner.layer_assignment.gpu_layers;
     let cpu_layers = runner.layer_assignment.cpu_layers;
+    let layer_assignment = runner.layer_assignment.clone();
     info!(
         "Model loaded | cpu_only={} | layers: {} GPU, {} CPU",
         args.cpu_only, gpu_layers, cpu_layers
@@ -308,10 +307,10 @@ async fn main() {
 
     let rate_limiter = Arc::new(RateLimiter::new(args.rate_limit));
 
-    let concurrency = Arc::new(Semaphore::new(args.max_concurrency.max(1)));
+    let concurrency = args.max_concurrency.max(1);
+    let pool = RunnerPool::new(runner.ctx, &runner.tokenizer, &layer_assignment, concurrency);
     let state = Arc::new(ServerState {
-        runner: Arc::new(TokioMutex::new(runner)),
-        concurrency,
+        pool,
         model_name: model_name.clone(),
         model_path: args.model.clone(),
         api_key: args.api_key.clone(),
@@ -606,8 +605,7 @@ async fn handle_chat_completions(
 
     if req.stream {
         let (tx, rx) = tokio::sync::mpsc::channel(100);
-        let shared_runner = Arc::clone(&state.runner);
-        let shared_concurrency = Arc::clone(&state.concurrency);
+        let state = Arc::clone(&state);
         let chat_id_clone = chat_id.clone();
         let model_name_clone = model_name.clone();
         let temperature = req.temperature;
@@ -615,8 +613,7 @@ async fn handle_chat_completions(
         let repetition_penalty = req.repetition_penalty;
 
         tokio::spawn(async move {
-            let _permit = shared_concurrency.acquire().await.unwrap();
-            let mut runner = shared_runner.lock().await;
+            let mut runner = state.pool.acquire().await;
             runner.kv.reset();
 
             let token_ids = runner.tokenizer.encode(&prompt, true);
@@ -656,7 +653,7 @@ async fn handle_chat_completions(
 
                 let mut layer_tel = vec![
                     aether::inference::telemetry::LayerTelemetry::default();
-                    runner.model.config.num_layers
+                    runner.ctx.model.config.num_layers
                 ];
                 let logits = match runner.decode_step(next_token, pos, &mut layer_tel) {
                     Ok(l) => l,
@@ -746,8 +743,7 @@ async fn handle_chat_completions(
         (StatusCode::OK, cors_headers(), Sse::new(stream)).into_response()
     } else {
         let (response_content, prompt_tokens, completion_tokens) = {
-            let _permit = state.concurrency.acquire().await.unwrap();
-            let mut runner = state.runner.lock().await;
+            let mut runner = state.pool.acquire().await;
             runner.kv.reset();
 
             let token_ids = runner.tokenizer.encode(&prompt, true);
@@ -825,15 +821,13 @@ async fn handle_completions(
 
     if req.stream {
         let (tx, rx) = tokio::sync::mpsc::channel(100);
-        let shared_runner = Arc::clone(&state.runner);
-        let shared_concurrency = Arc::clone(&state.concurrency);
+        let state = Arc::clone(&state);
         let temperature = req.temperature;
         let top_p = req.top_p;
         let repetition_penalty = req.repetition_penalty;
 
         tokio::spawn(async move {
-            let _permit = shared_concurrency.acquire().await.unwrap();
-            let mut runner = shared_runner.lock().await;
+            let mut runner = state.pool.acquire().await;
             runner.kv.reset();
 
             let token_ids = runner.tokenizer.encode(&req.prompt, true);
@@ -873,7 +867,7 @@ async fn handle_completions(
 
                 let mut layer_tel = vec![
                     aether::inference::telemetry::LayerTelemetry::default();
-                    runner.model.config.num_layers
+                    runner.ctx.model.config.num_layers
                 ];
                 let logits = match runner.decode_step(next_token, pos, &mut layer_tel) {
                     Ok(l) => l,
@@ -913,8 +907,7 @@ async fn handle_completions(
         (StatusCode::OK, cors_headers(), Sse::new(stream)).into_response()
     } else {
         let generated_text = {
-            let _permit = state.concurrency.acquire().await.unwrap();
-            let mut runner = state.runner.lock().await;
+            let mut runner = state.pool.acquire().await;
             runner.kv.reset();
             match runner.generate(
                 &req.prompt,

@@ -9,7 +9,7 @@ use crate::inference::kv_cache::StaticKVCache;
 use crate::inference::layer_cache::LayerCache;
 use crate::inference::model_loader::{LlamaConfig, LlamaLayerWeights, LlamaModel, QuantWeight};
 use crate::inference::telemetry::{ExecutionTelemetry, LayerTelemetry, Stopwatch};
-use crate::loader::gguf::{sha256_hex, GGUFLoader, GGUFModel};
+use crate::loader::gguf::{sha256_hex, GGUFDtype, GGUFLoader, GGUFModel};
 use crate::tokenizer::Tokenizer;
 // matmul is called via layer.X.matmul() and model.lm_head.matmul()
 use crate::backend::WgpuBackend;
@@ -18,14 +18,20 @@ use crate::scheduler::memory_aware::{LayerAssignment, MemoryAwareScheduler, Memo
 use crate::Device;
 use crate::Error;
 
-struct LlamaLayerGpuWeights {
-    q_proj: wgpu::Buffer,
-    k_proj: wgpu::Buffer,
-    v_proj: wgpu::Buffer,
-    o_proj: wgpu::Buffer,
-    gate_proj: wgpu::Buffer,
-    up_proj: wgpu::Buffer,
-    down_proj: wgpu::Buffer,
+/// A GPU weight buffer that stays in its native quantized format.
+pub struct QuantGpuWeight {
+    pub buffer: wgpu::Buffer,
+    pub dtype: GGUFDtype,
+}
+
+pub struct LlamaLayerGpuWeights {
+    q_proj: QuantGpuWeight,
+    k_proj: QuantGpuWeight,
+    v_proj: QuantGpuWeight,
+    o_proj: QuantGpuWeight,
+    gate_proj: QuantGpuWeight,
+    up_proj: QuantGpuWeight,
+    down_proj: QuantGpuWeight,
 }
 
 /// Pre-allocated scratch buffers to eliminate per-layer allocations in the hot path.
@@ -70,8 +76,14 @@ struct ScratchSpace {
 /// Manages model weights, KV cache, tokenizer, GPU buffers, and layer
 /// assignment. Supports CPU-only, GPU-accelerated (WGPU/Metal), and
 /// hybrid (memory-aware) inference modes.
+///
+/// Heavyweight GPU resources (backend, weight buffers, RoPE GPU tables)
+/// live in [`InferenceContext`] which is shared via `Arc` across all
+/// runners in a pool. Each runner gets its own KV cache, scratch space,
+/// and GPU KV cache buffers for true concurrent request processing.
 pub struct LlamaRunner {
-    pub model: Arc<LlamaModel>,
+    /// Shared inference context (GPU backend, weight buffers, etc.)
+    pub ctx: Arc<InferenceContext>,
     pub kv: StaticKVCache,
     pub tokenizer: Tokenizer,
     pub telemetry: ExecutionTelemetry,
@@ -80,11 +92,7 @@ pub struct LlamaRunner {
     rope_sin: Vec<f32>,
     rope_cos: Vec<f32>,
 
-    // GPU RoPE tables (uploaded once at load time)
-    rope_sin_gpu: Option<wgpu::Buffer>,
-    rope_cos_gpu: Option<wgpu::Buffer>,
-
-    // GPU KV cache: per-layer buffers to avoid Metal 256 MB limit
+    // GPU KV cache: per-layer buffers (one per concurrent slot)
     kv_cache_k_gpu: Vec<wgpu::Buffer>,
     kv_cache_v_gpu: Vec<wgpu::Buffer>,
 
@@ -96,11 +104,8 @@ pub struct LlamaRunner {
 
     // Memory-aware layer assignment (GPU vs CPU)
     pub layer_assignment: LayerAssignment,
-    wgpu_backend: Option<WgpuBackend>,
-    gpu_weights: Vec<Option<LlamaLayerGpuWeights>>,
 
     // Streaming / LRU cache fields (only when model doesn't fit in RAM)
-    gguf: Option<Arc<GGUFModel>>,
     layer_cache: Option<LayerCache>,
 
     /// Whether CPU KV cache has been synced to GPU caches (after prefill).
@@ -124,6 +129,20 @@ struct PartialDecodeState {
     completed_layer: usize,
     /// Saved residual stream after the last completed layer [d_model].
     x: Vec<f32>,
+}
+
+/// Shared inference context: heavyweight resources that can be shared
+/// across multiple [`LlamaRunner`] instances in a pool.
+///
+/// Holds GPU backend, uploaded weight buffers, RoPE GPU tables, and the
+/// mmap-backed GGUF handle. All fields are read-only after construction.
+pub struct InferenceContext {
+    pub model: Arc<LlamaModel>,
+    pub wgpu_backend: Option<WgpuBackend>,
+    pub gpu_weights: Vec<Option<LlamaLayerGpuWeights>>,
+    pub rope_sin_gpu: Option<wgpu::Buffer>,
+    pub rope_cos_gpu: Option<wgpu::Buffer>,
+    pub gguf: Option<Arc<GGUFModel>>,
 }
 
 /// Options controlling model load behavior (inference deployments).
@@ -157,6 +176,118 @@ impl LlamaRunner {
         streaming_max_hot: Option<usize>,
         options: LoadOptions,
     ) -> Result<Self, Error> {
+        let (ctx, kv, tokenizer, telemetry, rope_sin, rope_cos, scratch,
+             kv_cache_k_gpu, kv_cache_v_gpu, cfg, layer_assignment, layer_cache) =
+            Self::load_context(path, streaming_max_hot, options)?;
+        Ok(Self {
+            ctx,
+            kv,
+            tokenizer,
+            telemetry,
+            rope_sin,
+            rope_cos,
+            kv_cache_k_gpu,
+            kv_cache_v_gpu,
+            scratch,
+            cfg,
+            layer_assignment,
+            layer_cache,
+            kv_synced_to_gpu: false,
+            frame_budget_ms: 0.0,
+            partial_decode: None,
+        })
+    }
+
+    /// Create a new [`LlamaRunner`] that shares an existing [`InferenceContext`].
+    ///
+    /// Each runner gets its own KV cache, scratch space, and GPU KV cache
+    /// buffers so multiple requests can be processed concurrently.
+    pub fn new_with_context(ctx: Arc<InferenceContext>, tokenizer: &Tokenizer,
+                            layer_assignment: &LayerAssignment) -> Self {
+        let cfg = ctx.model.config.clone();
+        let num_layers = cfg.num_layers;
+        let n_kv_heads = cfg.num_kv_heads;
+        let head_dim = cfg.head_dim;
+        let max_seq = cfg.max_seq_len.min(4096);
+
+        let kv = StaticKVCache::new(num_layers, n_kv_heads, head_dim, max_seq);
+        let scratch = ScratchSpace::new(&cfg, max_seq);
+
+        let (rope_sin, rope_cos) = precompute_rope(max_seq, cfg.head_dim, cfg.rope_base);
+
+        // Allocate GPU KV cache buffers if GPU is enabled
+        let mut kv_cache_k_gpu = Vec::new();
+        let mut kv_cache_v_gpu = Vec::new();
+        if let Some(ref backend) = ctx.wgpu_backend {
+            let cache_layer_elems = max_seq * n_kv_heads * head_dim;
+            let zero_layer = vec![0.0f32; cache_layer_elems];
+            for _ in 0..num_layers {
+                let k = backend.create_buffer_with_data(
+                    &zero_layer,
+                    wgpu::BufferUsages::STORAGE
+                        | wgpu::BufferUsages::COPY_DST
+                        | wgpu::BufferUsages::COPY_SRC,
+                );
+                let v = backend.create_buffer_with_data(
+                    &zero_layer,
+                    wgpu::BufferUsages::STORAGE
+                        | wgpu::BufferUsages::COPY_DST
+                        | wgpu::BufferUsages::COPY_SRC,
+                );
+                kv_cache_k_gpu.push(k);
+                kv_cache_v_gpu.push(v);
+            }
+        }
+
+        // Copy GPU layer count from context's assignment if available
+        let la = if cfg.num_layers > 0 && !ctx.gpu_weights.is_empty() {
+            let mut l = layer_assignment.clone();
+            for i in 0..cfg.num_layers.min(ctx.gpu_weights.len()) {
+                if ctx.gpu_weights[i].is_some() {
+                    l.layer_devices[i] = Device::Wgpu;
+                }
+            }
+            l.gpu_layers = ctx.gpu_weights.iter().filter(|w| w.is_some()).count();
+            l.cpu_layers = cfg.num_layers - l.gpu_layers;
+            l
+        } else {
+            layer_assignment.clone()
+        };
+
+        let telemetry = ExecutionTelemetry::new(num_layers);
+
+        Self {
+            ctx,
+            kv,
+            tokenizer: tokenizer.clone(),
+            telemetry,
+            rope_sin,
+            rope_cos,
+            kv_cache_k_gpu,
+            kv_cache_v_gpu,
+            scratch,
+            cfg,
+            layer_assignment: la,
+            layer_cache: None,
+            kv_synced_to_gpu: false,
+            frame_budget_ms: 0.0,
+            partial_decode: None,
+        }
+    }
+
+    /// Full model loading: returns the shared context and all per-runner state.
+    #[allow(clippy::type_complexity)]
+    fn load_context(
+        path: &str,
+        streaming_max_hot: Option<usize>,
+        options: LoadOptions,
+    ) -> Result<
+        (Arc<InferenceContext>, StaticKVCache, Tokenizer, ExecutionTelemetry,
+         Vec<f32>, Vec<f32>, ScratchSpace,
+         Vec<wgpu::Buffer>, Vec<wgpu::Buffer>,
+         LlamaConfig, LayerAssignment, Option<LayerCache>),
+        Error
+    > {
         let load_start = Instant::now();
         info!("Loading {}...", path);
 
@@ -225,8 +356,7 @@ impl LlamaRunner {
 
         let model = LlamaModel::from_gguf(&gguf, streaming)?;
 
-        let num_layers = cfg.num_layers;
-        let mut telemetry = ExecutionTelemetry::new(num_layers);
+        let mut telemetry = ExecutionTelemetry::new(cfg.num_layers);
         telemetry.record_load(load_time);
         telemetry.record_memory(model_bytes + kv_bytes);
 
@@ -337,32 +467,53 @@ impl LlamaRunner {
             if let Some(ref backend) = wgpu_backend {
                 for (i, layer) in model.layers.iter().enumerate() {
                     if layer_assignment.device_for_layer(i) == Device::Wgpu {
-                        let upload_weight = |qw: &QuantWeight| -> wgpu::Buffer {
-                            if let Ok(buf) =
-                                backend.dequantize_on_gpu(&qw.data, qw.dtype, &qw.shape)
-                            {
-                                buf
-                            } else {
-                                // Fallback to CPU-side dequantization
-                                let dequant = dequantize(&qw.data, qw.dtype, &qw.shape);
-                                backend
-                                    .create_buffer_with_data(&dequant, wgpu::BufferUsages::STORAGE)
-                            }
-                        };
-
-                        let q_proj = upload_weight(&layer.q_proj);
-                        let k_proj = upload_weight(&layer.k_proj);
-                        let v_proj = upload_weight(&layer.v_proj);
-                        let o_proj = upload_weight(&layer.o_proj);
+                        let upload =
+                            |qw: &QuantWeight| -> QuantGpuWeight {
+                                match qw.dtype {
+                                    GGUFDtype::Q8_0 | GGUFDtype::Q4_K => {
+                                        let mut padded = qw.data.to_vec();
+                                        while !padded.len().is_multiple_of(4) {
+                                            padded.push(0);
+                                        }
+                                        let buffer = backend.create_quant_buffer(
+                                            &padded,
+                                            wgpu::BufferUsages::STORAGE,
+                                        );
+                                        QuantGpuWeight {
+                                            buffer,
+                                            dtype: qw.dtype,
+                                        }
+                                    }
+                                    _ => {
+                                        let buf = if let Ok(buf) = backend.dequantize_on_gpu(
+                                            &qw.data,
+                                            qw.dtype,
+                                            &qw.shape,
+                                        ) {
+                                            buf
+                                        } else {
+                                            let dequant = dequantize(&qw.data, qw.dtype, &qw.shape);
+                                            backend.create_buffer_with_data(
+                                                &dequant,
+                                                wgpu::BufferUsages::STORAGE,
+                                            )
+                                        };
+                                        QuantGpuWeight {
+                                            buffer: buf,
+                                            dtype: GGUFDtype::F32,
+                                        }
+                                    }
+                                }
+                            };
 
                         gpu_weights.push(Some(LlamaLayerGpuWeights {
-                            q_proj,
-                            k_proj,
-                            v_proj,
-                            o_proj,
-                            gate_proj: upload_weight(&layer.gate_proj),
-                            up_proj: upload_weight(&layer.up_proj),
-                            down_proj: upload_weight(&layer.down_proj),
+                            q_proj: upload(&layer.q_proj),
+                            k_proj: upload(&layer.k_proj),
+                            v_proj: upload(&layer.v_proj),
+                            o_proj: upload(&layer.o_proj),
+                            gate_proj: upload(&layer.gate_proj),
+                            up_proj: upload(&layer.up_proj),
+                            down_proj: upload(&layer.down_proj),
                         }));
                     } else {
                         gpu_weights.push(None);
@@ -375,28 +526,17 @@ impl LlamaRunner {
             }
         }
 
-        Ok(Self {
+        let ctx = Arc::new(InferenceContext {
             model: Arc::new(model),
-            kv,
-            tokenizer,
-            telemetry,
-            rope_sin,
-            rope_cos,
-            rope_sin_gpu,
-            rope_cos_gpu,
-            kv_cache_k_gpu,
-            kv_cache_v_gpu,
-            scratch,
-            cfg,
-            layer_assignment,
             wgpu_backend,
             gpu_weights,
+            rope_sin_gpu,
+            rope_cos_gpu,
             gguf: gguf_arc,
-            layer_cache,
-            kv_synced_to_gpu: false,
-            frame_budget_ms: 0.0,
-            partial_decode: None,
-        })
+        });
+
+        Ok((ctx, kv, tokenizer, telemetry, rope_sin, rope_cos, scratch,
+            kv_cache_k_gpu, kv_cache_v_gpu, cfg, layer_assignment, layer_cache))
     }
 
     /// Generate text from a prompt using autoregressive decoding.
@@ -537,7 +677,7 @@ impl LlamaRunner {
     /// Required because `forward_batch` (CPU prefill) writes to CPU KV cache
     /// only, while GPU decode reads from separate GPU KV cache buffers.
     fn sync_kv_cache_to_gpu(&self) -> Result<(), Error> {
-        let backend = match &self.wgpu_backend {
+        let backend = match &self.ctx.wgpu_backend {
             Some(b) => b,
             None => return Ok(()),
         };
@@ -578,6 +718,11 @@ impl LlamaRunner {
                 .write_buffer(kv_v, 0, bytemuck::cast_slice(&gpu_v));
         }
         Ok(())
+    }
+
+    /// Number of transformer layers in the loaded model.
+    pub fn num_layers(&self) -> usize {
+        self.cfg.num_layers
     }
 
     /// Set the per-decode-step frame budget in milliseconds.
@@ -684,12 +829,12 @@ impl LlamaRunner {
         let scores = &mut s.batch_scores[..n * n];
 
         // 1. Embed all tokens
-        let model = &self.model;
+        let model = &self.ctx.model;
         let rope_sin = &self.rope_sin;
         let rope_cos = &self.rope_cos;
         let kv = &mut self.kv;
         let layer_cache = &mut self.layer_cache;
-        let gguf = &self.gguf;
+        let gguf = &self.ctx.gguf;
         for (i, &tok) in token_ids.iter().enumerate() {
             let emb = &model.token_embeddings[(tok as usize) * d..][..d];
             batch_x[i * d..(i + 1) * d].copy_from_slice(emb);
@@ -839,12 +984,12 @@ impl LlamaRunner {
         let mut batch_ffn_hidden = vec![0.0f32; n * d_ff];
         let mut scores = vec![0.0f32; n * n];
 
-        let model = &self.model;
+        let model = &self.ctx.model;
         let rope_sin = &self.rope_sin;
         let rope_cos = &self.rope_cos;
         let kv = &mut self.kv;
         let layer_cache = &mut self.layer_cache;
-        let gguf = &self.gguf;
+        let gguf = &self.ctx.gguf;
 
         for (i, &tok) in token_ids.iter().enumerate() {
             let emb = &model.token_embeddings[(tok as usize) * d..][..d];
@@ -1009,18 +1154,18 @@ impl LlamaRunner {
         let n_kv_heads = cfg.num_kv_heads;
         let head_dim = cfg.head_dim;
         // Sync CPU KV cache to GPU caches on first decode after prefill.
-        if !self.kv_synced_to_gpu && self.wgpu_backend.is_some() {
+        if !self.kv_synced_to_gpu && self.ctx.wgpu_backend.is_some() {
             self.sync_kv_cache_to_gpu()?;
             self.kv_synced_to_gpu = true;
         }
 
         let s = &mut self.scratch;
-        let model = &self.model;
+        let model = &self.ctx.model;
         let rope_sin = &self.rope_sin;
         let rope_cos = &self.rope_cos;
         let kv = &mut self.kv;
         let layer_cache = &mut self.layer_cache;
-        let gguf = &self.gguf;
+        let gguf = &self.ctx.gguf;
 
         // Determine start layer and restore partial state if resuming
         let start_layer = if let Some(ref partial) = self.partial_decode {
@@ -1050,6 +1195,36 @@ impl LlamaRunner {
             None
         };
 
+        /// Dispatch fused quant matmul or fallback to f32 pipeline based on
+        /// the weight's dtype.
+        fn quant_matmul(
+            backend: &WgpuBackend,
+            encoder: &mut wgpu::CommandEncoder,
+            a_buf: &wgpu::Buffer,
+            weight: &QuantGpuWeight,
+            m: u32,
+            n: u32,
+            k: u32,
+        ) -> Result<wgpu::Buffer, crate::Error> {
+            match weight.dtype {
+                GGUFDtype::Q8_0 => {
+                    backend.execute_matmul_q8_0_buffers_with_encoder(
+                        encoder, a_buf, &weight.buffer, m, n, k,
+                    )
+                }
+                GGUFDtype::Q4_K => {
+                    backend.execute_matmul_q4_k_buffers_with_encoder(
+                        encoder, a_buf, &weight.buffer, m, n, k,
+                    )
+                }
+                _ => {
+                    backend.execute_matmul_buffers_with_encoder(
+                        encoder, a_buf, &weight.buffer, m, n, k,
+                    )
+                }
+            }
+        }
+
         // 2. Transformer layers
         for layer_idx in start_layer..self.cfg.num_layers {
             // Check budget before processing this layer
@@ -1070,17 +1245,20 @@ impl LlamaRunner {
 
             if self.layer_assignment.device_for_layer(layer_idx) == Device::Wgpu {
                 let backend = self
+                    .ctx
                     .wgpu_backend
                     .as_ref()
                     .ok_or_else(|| Error::ExecutionError("GPU buffer not initialized".into()))?;
-                let gw = self.gpu_weights[layer_idx]
+                let gw = self.ctx.gpu_weights[layer_idx]
                     .as_ref()
                     .ok_or_else(|| Error::ExecutionError("GPU buffer not initialized".into()))?;
                 let rsin = self
+                    .ctx
                     .rope_sin_gpu
                     .as_ref()
                     .ok_or_else(|| Error::ExecutionError("GPU buffer not initialized".into()))?;
                 let rcos = self
+                    .ctx
                     .rope_cos_gpu
                     .as_ref()
                     .ok_or_else(|| Error::ExecutionError("GPU buffer not initialized".into()))?;
@@ -1141,7 +1319,8 @@ impl LlamaRunner {
                 );
 
                 let mut enc = backend.create_encoder("qkv_matmul");
-                let q = backend.execute_matmul_buffers_with_encoder(
+                let q = quant_matmul(
+                    backend,
                     &mut enc,
                     &normed_buf,
                     &gw.q_proj,
@@ -1149,7 +1328,8 @@ impl LlamaRunner {
                     d_u,
                     d_u,
                 )?;
-                let k = backend.execute_matmul_buffers_with_encoder(
+                let k = quant_matmul(
+                    backend,
                     &mut enc,
                     &normed_buf,
                     &gw.k_proj,
@@ -1157,7 +1337,8 @@ impl LlamaRunner {
                     kv_d_u,
                     d_u,
                 )?;
-                let v = backend.execute_matmul_buffers_with_encoder(
+                let v = quant_matmul(
+                    backend,
                     &mut enc,
                     &normed_buf,
                     &gw.v_proj,
@@ -1279,8 +1460,8 @@ impl LlamaRunner {
                 }
 
                 let mut enc3 = backend.create_encoder("output_proj");
-                let attn_proj = backend.execute_matmul_buffers_with_encoder(
-                    &mut enc3, &attn_out, &gw.o_proj, 1, d_u, d_u,
+                let attn_proj = quant_matmul(
+                    backend, &mut enc3, &attn_out, &gw.o_proj, 1, d_u, d_u,
                 )?;
                 let x_new = backend.execute_add_buffers_with_encoder(
                     &mut enc3,
@@ -1304,7 +1485,8 @@ impl LlamaRunner {
                 );
 
                 let mut enc4 = backend.create_encoder("ffn_matmul");
-                let gate = backend.execute_matmul_buffers_with_encoder(
+                let gate = quant_matmul(
+                    backend,
                     &mut enc4,
                     &normed_ff_buf,
                     &gw.gate_proj,
@@ -1312,7 +1494,8 @@ impl LlamaRunner {
                     d_ff_u,
                     d_u,
                 )?;
-                let up = backend.execute_matmul_buffers_with_encoder(
+                let up = quant_matmul(
+                    backend,
                     &mut enc4,
                     &normed_ff_buf,
                     &gw.up_proj,
@@ -1325,7 +1508,8 @@ impl LlamaRunner {
                 let silu_out = backend.execute_silu_mul_buffers(&gate, &up, 1, d_ff_u)?;
 
                 let mut enc5 = backend.create_encoder("ffn_down");
-                let mlp_out = backend.execute_matmul_buffers_with_encoder(
+                let mlp_out = quant_matmul(
+                    backend,
                     &mut enc5,
                     &silu_out,
                     &gw.down_proj,
@@ -1890,6 +2074,100 @@ pub fn estimate_model_bytes(model: &LlamaModel) -> usize {
         })
         .sum();
     emb + norm + lm + layers
+}
+
+// ─── RunnerPool ─────────────────────────────────────────────────────────────────
+
+/// A pool of pre-allocated [`LlamaRunner`] instances sharing a single
+/// [`InferenceContext`]. Enables true concurrent request processing
+/// (N simultaneous inferences) instead of serializing on a single mutex.
+///
+/// # Usage
+///
+/// ```ignore
+/// let pool = RunnerPool::new(ctx, &tokenizer, &layer_assignment, 4);
+/// let mut runner = pool.acquire().await;
+/// runner.kv.reset();
+/// let logits = runner.prefill(&tokens)?;
+/// // ... drop guard returns runner to pool automatically
+/// ```
+pub struct RunnerPool {
+    runners: std::sync::Mutex<Vec<LlamaRunner>>,
+    pub semaphore: tokio::sync::Semaphore,
+}
+
+impl RunnerPool {
+    /// Create a pool with `count` runners sharing the given context.
+    pub fn new(
+        ctx: Arc<InferenceContext>,
+        tokenizer: &Tokenizer,
+        layer_assignment: &LayerAssignment,
+        count: usize,
+    ) -> Self {
+        let count = count.max(1);
+        let mut runners = Vec::with_capacity(count);
+        for _ in 0..count {
+            runners.push(LlamaRunner::new_with_context(
+                Arc::clone(&ctx),
+                tokenizer,
+                layer_assignment,
+            ));
+        }
+        RunnerPool {
+            runners: std::sync::Mutex::new(runners),
+            semaphore: tokio::sync::Semaphore::new(count),
+        }
+    }
+
+    /// Acquire a runner from the pool. Blocks until one is available.
+    pub async fn acquire(&self) -> RunnerGuard<'_> {
+        let permit = self.semaphore.acquire().await.unwrap_or_else(|_| {
+            self.semaphore.add_permits(1);
+            self.semaphore.try_acquire().unwrap()
+        });
+        let runner = self.runners.lock().unwrap().pop().unwrap();
+        RunnerGuard {
+            runner: Some(runner),
+            pool: self,
+            permit,
+        }
+    }
+
+}
+
+/// RAII guard returned by [`RunnerPool::acquire`].
+/// Auto-returns the runner to the pool when dropped.
+pub struct RunnerGuard<'a> {
+    runner: Option<LlamaRunner>,
+    pool: &'a RunnerPool,
+    #[allow(dead_code)]
+    permit: tokio::sync::SemaphorePermit<'a>,
+}
+
+impl<'a> std::ops::Deref for RunnerGuard<'a> {
+    type Target = LlamaRunner;
+    fn deref(&self) -> &LlamaRunner {
+        self.runner.as_ref().unwrap()
+    }
+}
+
+impl<'a> std::ops::DerefMut for RunnerGuard<'a> {
+    fn deref_mut(&mut self) -> &mut LlamaRunner {
+        self.runner.as_mut().unwrap()
+    }
+}
+
+impl<'a> Drop for RunnerGuard<'a> {
+    fn drop(&mut self) {
+        if let Some(mut runner) = self.runner.take() {
+            runner.kv.reset();
+            runner.kv_synced_to_gpu = false;
+            runner.partial_decode = None;
+            self.pool.runners.lock().unwrap().push(runner);
+            // permit drops automatically when the guard dies,
+            // which adds 1 back to the semaphore
+        }
+    }
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────────────

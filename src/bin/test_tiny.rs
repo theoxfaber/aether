@@ -20,9 +20,9 @@ fn main() -> Result<(), Error> {
     let mut token_ids = runner.tokenizer.encode(prompt, true);
     let prompt_len = token_ids.len();
 
-    let mut last_logits = vec![0f32; runner.model.config.vocab_size];
+    let mut last_logits = vec![0f32; runner.ctx.model.config.vocab_size];
     for (pos, &tok) in token_ids.iter().enumerate() {
-        let mut dummy = vec![LayerTelemetry::default(); runner.model.config.num_layers];
+        let mut dummy = vec![LayerTelemetry::default(); runner.ctx.model.config.num_layers];
         last_logits = runner.forward_one_hook(tok, pos, &mut dummy)?;
     }
 
@@ -46,7 +46,7 @@ fn main() -> Result<(), Error> {
     for step in 0..30 {
         let pos = prompt_len + step;
         let tok = token_ids[token_ids.len() - 1];
-        let mut dummy = vec![LayerTelemetry::default(); runner.model.config.num_layers];
+        let mut dummy = vec![LayerTelemetry::default(); runner.ctx.model.config.num_layers];
         last_logits = runner.forward_one_hook(tok, pos, &mut dummy)?;
         let mx = argmax(&last_logits) as u32;
         if mx == runner.tokenizer.eos_id {

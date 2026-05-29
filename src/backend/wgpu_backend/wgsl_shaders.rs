@@ -1170,6 +1170,169 @@
         }
     "#;
 
+    const MATMUL_Q8_0_SHADER_SRC: &str = r#"
+        struct Dims {
+            M: u32,
+            N: u32,
+            K: u32,
+            padding: u32,
+        }
+
+        @group(0) @binding(0) var<storage, read> a: array<f32>;
+        @group(0) @binding(1) var<storage, read> b: array<u32>;
+        @group(0) @binding(2) var<storage, read_write> c: array<f32>;
+        @group(0) @binding(3) var<uniform> dims: Dims;
+
+        fn read_byte(byte_idx: u32) -> u32 {
+            let word = b[byte_idx / 4u];
+            return (word >> ((byte_idx % 4u) * 8u)) & 0xFFu;
+        }
+
+        fn f16_to_f32(bits: u32) -> f32 {
+            let sign = select(1.0, -1.0, (bits & 0x8000u) != 0u);
+            let exponent = (bits >> 10u) & 0x1Fu;
+            let mantissa = bits & 0x3FFu;
+
+            if (exponent == 0u) {
+                if (mantissa == 0u) {
+                    return 0.0;
+                } else {
+                    return sign * f32(mantissa) / 1024.0 * 0.00006103515625;
+                }
+            } else if (exponent == 31u) {
+                if (mantissa == 0u) {
+                    return sign * bitcast<f32>(0x7F800000u);
+                } else {
+                    return sign * bitcast<f32>(0x7FC00000u);
+                }
+            } else {
+                return sign * (1.0 + f32(mantissa) / 1024.0) * pow(2.0, f32(exponent) - 15.0);
+            }
+        }
+
+        @compute @workgroup_size(256)
+        fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+            let idx = id.x;
+            if (idx >= dims.M * dims.N) { return; }
+            let row = idx / dims.N;
+            let col = idx % dims.N;
+
+            let blocks_per_row = (dims.K + 31u) / 32u;
+            var sum = 0.0;
+
+            for (var block = 0u; block < blocks_per_row; block++) {
+                let block_bo = (col * blocks_per_row + block) * 34u;
+
+                let d_bits = (read_byte(block_bo + 1u) << 8u) | read_byte(block_bo + 0u);
+                let d = f16_to_f32(d_bits);
+
+                for (var i = 0u; i < 32u; i++) {
+                    let k_idx = block * 32u + i;
+                    if (k_idx >= dims.K) { break; }
+                    let qs_byte = read_byte(block_bo + 2u + i);
+                    let q = f32(i32(qs_byte) - select(0, 256, (qs_byte & 128u) != 0u));
+                    sum += d * q * a[row * dims.K + k_idx];
+                }
+            }
+
+            c[idx] = sum;
+        }
+    "#;
+
+    const MATMUL_Q4_K_SHADER_SRC: &str = r#"
+        struct Dims {
+            M: u32,
+            N: u32,
+            K: u32,
+            padding: u32,
+        }
+
+        @group(0) @binding(0) var<storage, read> a: array<f32>;
+        @group(0) @binding(1) var<storage, read> b: array<u32>;
+        @group(0) @binding(2) var<storage, read_write> c: array<f32>;
+        @group(0) @binding(3) var<uniform> dims: Dims;
+
+        fn read_byte(byte_idx: u32) -> u32 {
+            let word = b[byte_idx / 4u];
+            return (word >> ((byte_idx % 4u) * 8u)) & 0xFFu;
+        }
+
+        fn f16_to_f32(bits: u32) -> f32 {
+            let sign = select(1.0, -1.0, (bits & 0x8000u) != 0u);
+            let exponent = (bits >> 10u) & 0x1Fu;
+            let mantissa = bits & 0x3FFu;
+
+            if (exponent == 0u) {
+                if (mantissa == 0u) {
+                    return 0.0;
+                } else {
+                    return sign * f32(mantissa) / 1024.0 * 0.00006103515625;
+                }
+            } else if (exponent == 31u) {
+                if (mantissa == 0u) {
+                    return sign * bitcast<f32>(0x7F800000u);
+                } else {
+                    return sign * bitcast<f32>(0x7FC00000u);
+                }
+            } else {
+                return sign * (1.0 + f32(mantissa) / 1024.0) * pow(2.0, f32(exponent) - 15.0);
+            }
+        }
+
+        fn get_scale_min_k4(j: u32, bo: u32) -> vec2<f32> {
+            if (j < 4u) {
+                let s_j = read_byte(bo + 4u + j);
+                let s_j4 = read_byte(bo + 4u + j + 4u);
+                return vec2<f32>(f32(s_j & 63u), f32(s_j4 & 63u));
+            } else {
+                let s_j4 = read_byte(bo + 4u + j + 4u);
+                let s_j_minus_4 = read_byte(bo + 4u + j - 4u);
+                let s_j = read_byte(bo + 4u + j);
+                let sc = (s_j4 & 0x0Fu) | ((s_j_minus_4 >> 6u) << 4u);
+                let mm = (s_j4 >> 4u) | ((s_j >> 6u) << 4u);
+                return vec2<f32>(f32(sc), f32(mm));
+            }
+        }
+
+        @compute @workgroup_size(256)
+        fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+            let idx = id.x;
+            if (idx >= dims.M * dims.N) { return; }
+            let row = idx / dims.N;
+            let col = idx % dims.N;
+
+            let blocks_per_row = (dims.K + 255u) / 256u;
+            var sum = 0.0;
+
+            for (var block = 0u; block < blocks_per_row; block++) {
+                let block_bo = (col * blocks_per_row + block) * 144u;
+
+                let d_bits = (read_byte(block_bo + 1u) << 8u) | read_byte(block_bo + 0u);
+                let d = f16_to_f32(d_bits);
+                let dmin_bits = (read_byte(block_bo + 3u) << 8u) | read_byte(block_bo + 2u);
+                let dmin = f16_to_f32(dmin_bits);
+
+                for (var sb = 0u; sb < 8u; sb++) {
+                    let sc_mm = get_scale_min_k4(sb, block_bo);
+                    let chunk = sb / 2u;
+                    for (var i = 0u; i < 32u; i++) {
+                        let k_idx = block * 256u + sb * 32u + i;
+                        if (k_idx >= dims.K) { break; }
+                        let qs_byte = read_byte(block_bo + 16u + chunk * 32u + i);
+                        let q = select(
+                            f32(qs_byte & 0x0Fu),
+                            f32((qs_byte >> 4u) & 0x0Fu),
+                            (sb & 1u) != 0u
+                        );
+                        sum += (d * sc_mm.x * q - dmin * sc_mm.y) * a[row * dims.K + k_idx];
+                    }
+                }
+            }
+
+            c[idx] = sum;
+        }
+    "#;
+
     const DEQUANT_Q8_0_SHADER_SRC: &str = r#"
         @group(0) @binding(0) var<storage, read> quant_data: array<u32>;
         @group(0) @binding(1) var<storage, read_write> output: array<f32>;

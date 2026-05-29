@@ -114,24 +114,24 @@ pub extern "C" fn aether_free(model: *mut AetherModel) {
 
 #[no_mangle]
 pub extern "C" fn aether_vocab_size(model: *const AetherModel) -> i32 {
-    with_model(model, |inner| inner.runner.model.config.vocab_size as i32)
+    with_model(model, |inner| inner.runner.ctx.model.config.vocab_size as i32)
 }
 
 #[no_mangle]
 pub extern "C" fn aether_context_len(model: *const AetherModel) -> i32 {
     with_model(model, |inner| {
-        inner.runner.model.config.max_seq_len.min(4096) as i32
+        inner.runner.ctx.model.config.max_seq_len.min(4096) as i32
     })
 }
 
 #[no_mangle]
 pub extern "C" fn aether_num_layers(model: *const AetherModel) -> i32 {
-    with_model(model, |inner| inner.runner.model.config.num_layers as i32)
+    with_model(model, |inner| inner.runner.ctx.model.config.num_layers as i32)
 }
 
 #[no_mangle]
 pub extern "C" fn aether_d_model(model: *const AetherModel) -> i32 {
-    with_model(model, |inner| inner.runner.model.config.d_model as i32)
+    with_model(model, |inner| inner.runner.ctx.model.config.d_model as i32)
 }
 
 #[no_mangle]
@@ -287,7 +287,7 @@ pub extern "C" fn aether_decode(
     logits_out: *mut f32,
 ) -> i32 {
     with_model_mut(model, |inner| {
-        let n_layers = inner.runner.model.config.num_layers;
+        let n_layers = inner.runner.ctx.model.config.num_layers;
         let mut tel = vec![LayerTelemetry::default(); n_layers];
         match inner
             .runner
@@ -327,7 +327,7 @@ pub extern "C" fn aether_decode_budgeted(
         // Sync the runner's frame budget from the C API field
         inner.runner.set_frame_budget(inner.frame_budget_ms);
 
-        let n_layers = inner.runner.model.config.num_layers;
+        let n_layers = inner.runner.ctx.model.config.num_layers;
         let mut tel = vec![LayerTelemetry::default(); n_layers];
         match inner
             .runner
@@ -366,7 +366,7 @@ pub extern "C" fn aether_sample(
     top_p: f32,
 ) -> i32 {
     with_model(model, |inner| {
-        let vocab = inner.runner.model.config.vocab_size;
+        let vocab = inner.runner.ctx.model.config.vocab_size;
         let logits = unsafe { std::slice::from_raw_parts(logits, vocab) };
         let prev_set = std::collections::HashSet::new();
         let token = sample(logits, temperature, top_p, &prev_set, 1.0);
@@ -379,7 +379,7 @@ pub extern "C" fn aether_sample(
 #[no_mangle]
 pub extern "C" fn aether_argmax(model: *const AetherModel, logits: *const f32) -> i32 {
     with_model(model, |inner| {
-        let vocab = inner.runner.model.config.vocab_size;
+        let vocab = inner.runner.ctx.model.config.vocab_size;
         let logits = unsafe { std::slice::from_raw_parts(logits, vocab) };
         let token = logits
             .iter()

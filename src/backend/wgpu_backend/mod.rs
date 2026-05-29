@@ -274,6 +274,8 @@ pub mod wgpu_backend_mod {
         avg_pool_pipeline: wgpu::ComputePipeline,
         max_pool_grad_pipeline: wgpu::ComputePipeline,
         avg_pool_grad_pipeline: wgpu::ComputePipeline,
+        matmul_q8_0_pipeline: wgpu::ComputePipeline,
+        matmul_q4_k_pipeline: wgpu::ComputePipeline,
         dequant_q4_k_pipeline: wgpu::ComputePipeline,
         dequant_q5_k_pipeline: wgpu::ComputePipeline,
         dequant_q6_k_pipeline: wgpu::ComputePipeline,
@@ -553,6 +555,36 @@ pub mod wgpu_backend_mod {
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                 });
 
+            let matmul_q8_0_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("MatMul Q8_0 Shader Module"),
+                source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(
+                    MATMUL_Q8_0_SHADER_SRC,
+                )),
+            });
+            let matmul_q4_k_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("MatMul Q4_K Shader Module"),
+                source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(
+                    MATMUL_Q4_K_SHADER_SRC,
+                )),
+            });
+
+            let matmul_q8_0_pipeline =
+                device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("MatMul Q8_0 Compute Pipeline"),
+                    layout: None,
+                    module: &matmul_q8_0_module,
+                    entry_point: "main",
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                });
+            let matmul_q4_k_pipeline =
+                device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("MatMul Q4_K Compute Pipeline"),
+                    layout: None,
+                    module: &matmul_q4_k_module,
+                    entry_point: "main",
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                });
+
             let matmul_relu_pipeline =
                 device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                     label: Some("MatMul ReLU Compute Pipeline"),
@@ -729,6 +761,8 @@ pub mod wgpu_backend_mod {
                     relu_pipeline,
                     matmul_pipeline,
                     tiny_matmul_pipeline,
+                    matmul_q8_0_pipeline,
+                    matmul_q4_k_pipeline,
                     add_pipeline,
                     matmul_relu_pipeline,
                     matmul_add_pipeline,
@@ -914,6 +948,20 @@ pub mod wgpu_backend_mod {
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("Data Buffer"),
                     contents: bytemuck::cast_slice(data),
+                    usage,
+                })
+        }
+
+        pub fn create_quant_buffer(
+            &self,
+            data: &[u8],
+            usage: wgpu::BufferUsages,
+        ) -> wgpu::Buffer {
+            self.inner
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Quantized Weight Buffer"),
+                    contents: data,
                     usage,
                 })
         }
@@ -2199,6 +2247,122 @@ pub mod wgpu_backend_mod {
                     let workgroups_y = m.div_ceil(64);
                     compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
                 }
+            }
+            Ok(c_buf)
+        }
+
+        /// Fused Q8_0 dequant + matmul. B buffer holds raw Q8_0 block data
+        /// as padded `u32` slices. Output is f32 [M, N].
+        pub fn execute_matmul_q8_0_buffers_with_encoder(
+            &self,
+            encoder: &mut wgpu::CommandEncoder,
+            a_buf: &wgpu::Buffer,
+            b_buf: &wgpu::Buffer,
+            m: u32,
+            n: u32,
+            k: u32,
+        ) -> Result<wgpu::Buffer, Error> {
+            let size_bytes = (m * n) as usize * std::mem::size_of::<f32>();
+            let c_buf = self.inner.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("MatMul Q8_0 Output Buffer"),
+                size: size_bytes as u64,
+                usage: wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_SRC
+                    | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+
+            let dims = MatmulDims { m, n, k, padding: 0 };
+            let dims_buf =
+                self.inner.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("MatMul Q8_0 Dims Uniform Buffer"),
+                    contents: bytemuck::bytes_of(&dims),
+                    usage: wgpu::BufferUsages::UNIFORM,
+                });
+
+            let pipeline = &self.inner.matmul_q8_0_pipeline;
+            let bind_group_layout = pipeline.get_bind_group_layout(0);
+            let bind_group = self
+                .inner
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("MatMul Q8_0 Bind Group"),
+                    layout: &bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry { binding: 0, resource: a_buf.as_entire_binding() },
+                        wgpu::BindGroupEntry { binding: 1, resource: b_buf.as_entire_binding() },
+                        wgpu::BindGroupEntry { binding: 2, resource: c_buf.as_entire_binding() },
+                        wgpu::BindGroupEntry { binding: 3, resource: dims_buf.as_entire_binding() },
+                    ],
+                });
+
+            {
+                let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("MatMul Q8_0 Compute Pass"),
+                    timestamp_writes: None,
+                });
+                compute_pass.set_pipeline(pipeline);
+                compute_pass.set_bind_group(0, &bind_group, &[]);
+                let total = (m * n).div_ceil(256);
+                compute_pass.dispatch_workgroups(total, 1, 1);
+            }
+            Ok(c_buf)
+        }
+
+        /// Fused Q4_K dequant + matmul. B buffer holds raw Q4_K block data
+        /// as padded `u32` slices. Output is f32 [M, N].
+        pub fn execute_matmul_q4_k_buffers_with_encoder(
+            &self,
+            encoder: &mut wgpu::CommandEncoder,
+            a_buf: &wgpu::Buffer,
+            b_buf: &wgpu::Buffer,
+            m: u32,
+            n: u32,
+            k: u32,
+        ) -> Result<wgpu::Buffer, Error> {
+            let size_bytes = (m * n) as usize * std::mem::size_of::<f32>();
+            let c_buf = self.inner.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("MatMul Q4_K Output Buffer"),
+                size: size_bytes as u64,
+                usage: wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_SRC
+                    | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+
+            let dims = MatmulDims { m, n, k, padding: 0 };
+            let dims_buf =
+                self.inner.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("MatMul Q4_K Dims Uniform Buffer"),
+                    contents: bytemuck::bytes_of(&dims),
+                    usage: wgpu::BufferUsages::UNIFORM,
+                });
+
+            let pipeline = &self.inner.matmul_q4_k_pipeline;
+            let bind_group_layout = pipeline.get_bind_group_layout(0);
+            let bind_group = self
+                .inner
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("MatMul Q4_K Bind Group"),
+                    layout: &bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry { binding: 0, resource: a_buf.as_entire_binding() },
+                        wgpu::BindGroupEntry { binding: 1, resource: b_buf.as_entire_binding() },
+                        wgpu::BindGroupEntry { binding: 2, resource: c_buf.as_entire_binding() },
+                        wgpu::BindGroupEntry { binding: 3, resource: dims_buf.as_entire_binding() },
+                    ],
+                });
+
+            {
+                let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("MatMul Q4_K Compute Pass"),
+                    timestamp_writes: None,
+                });
+                compute_pass.set_pipeline(pipeline);
+                compute_pass.set_bind_group(0, &bind_group, &[]);
+                let total = (m * n).div_ceil(256);
+                compute_pass.dispatch_workgroups(total, 1, 1);
             }
             Ok(c_buf)
         }
