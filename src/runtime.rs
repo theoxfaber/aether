@@ -152,22 +152,21 @@ pub mod runtime_mod {
         };
 
         // 4c. Pre-allocate GPU/CPU arena buffers for static memory plan.
-        let gpu_arena: Option<Arc<wgpu::Buffer>> = if target_device == Device::Wgpu
-            && gpu_plan.total_size > 0
-        {
-            let backend = WgpuBackend::get_or_init()?;
-            let dev = backend.device();
-            Some(Arc::new(dev.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("GPU Static Arena"),
-                size: gpu_plan.total_size as u64,
-                usage: wgpu::BufferUsages::STORAGE
-                    | wgpu::BufferUsages::COPY_SRC
-                    | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            })))
-        } else {
-            None
-        };
+        let gpu_arena: Option<Arc<wgpu::Buffer>> =
+            if target_device == Device::Wgpu && gpu_plan.total_size > 0 {
+                let backend = WgpuBackend::get_or_init()?;
+                let dev = backend.device();
+                Some(Arc::new(dev.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("GPU Static Arena"),
+                    size: gpu_plan.total_size as u64,
+                    usage: wgpu::BufferUsages::STORAGE
+                        | wgpu::BufferUsages::COPY_SRC
+                        | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                })))
+            } else {
+                None
+            };
 
         // NOTE: CPU tensors remain dynamically managed (register_cpu / ensure_cpu).
         // The CPU arena path (execute_cpu_op_slices) is not wired into the op dispatch;
@@ -209,8 +208,8 @@ pub mod runtime_mod {
             limit,
             gpu_arena,
             gpu_plan.allocations,
-            None,                               // cpu_arena — dynamically managed
-            std::collections::HashMap::new(),    // cpu_plan  — empty: CPU tensors are not arena-backed
+            None,                             // cpu_arena — dynamically managed
+            std::collections::HashMap::new(), // cpu_plan  — empty: CPU tensors are not arena-backed
             intermediate_metadata,
         );
 
@@ -700,11 +699,8 @@ pub mod runtime_mod {
                         let k = lhs_shape[1] as u32;
                         let n = rhs_shape[1] as u32;
 
-                        let out_view =
-                            registry.get_gpu_view(output_tid, wgpu_device, queue)?;
-                        wgpu_backend.execute_matmul_view(
-                            &lhs_view, &rhs_view, &out_view, m, n, k,
-                        );
+                        let out_view = registry.get_gpu_view(output_tid, wgpu_device, queue)?;
+                        wgpu_backend.execute_matmul_view(&lhs_view, &rhs_view, &out_view, m, n, k);
                         registry.touch(output_tid, op_idx)?;
                     }
                     Op::Transpose => {
@@ -931,8 +927,7 @@ pub mod runtime_mod {
                         let k = lhs_shape[2] as u32;
                         let n = rhs_shape[2] as u32;
 
-                        let out_view =
-                            registry.get_gpu_view(output_tid, wgpu_device, queue)?;
+                        let out_view = registry.get_gpu_view(output_tid, wgpu_device, queue)?;
                         wgpu_backend.execute_batched_matmul_view(
                             &lhs_view, &rhs_view, &out_view, b, m, n, k,
                         );
