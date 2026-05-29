@@ -948,7 +948,11 @@
                     return sign * f32(mantissa) / 1024.0 * 0.00006103515625;
                 }
             } else if (exponent == 31u) {
-                return 0.0;
+                if (mantissa == 0u) {
+                    return sign * bitcast<f32>(0x7F800000u);
+                } else {
+                    return sign * bitcast<f32>(0x7FC00000u);
+                }
             } else {
                 return sign * (1.0 + f32(mantissa) / 1024.0) * pow(2.0, f32(exponent) - 15.0);
             }
@@ -1023,7 +1027,11 @@
                     return sign * f32(mantissa) / 1024.0 * 0.00006103515625;
                 }
             } else if (exponent == 31u) {
-                return 0.0;
+                if (mantissa == 0u) {
+                    return sign * bitcast<f32>(0x7F800000u);
+                } else {
+                    return sign * bitcast<f32>(0x7FC00000u);
+                }
             } else {
                 return sign * (1.0 + f32(mantissa) / 1024.0) * pow(2.0, f32(exponent) - 15.0);
             }
@@ -1104,7 +1112,11 @@
                     return sign * f32(mantissa) / 1024.0 * 0.00006103515625;
                 }
             } else if (exponent == 31u) {
-                return 0.0;
+                if (mantissa == 0u) {
+                    return sign * bitcast<f32>(0x7F800000u);
+                } else {
+                    return sign * bitcast<f32>(0x7FC00000u);
+                }
             } else {
                 return sign * (1.0 + f32(mantissa) / 1024.0) * pow(2.0, f32(exponent) - 15.0);
             }
@@ -1179,7 +1191,11 @@
                     return sign * f32(mantissa) / 1024.0 * 0.00006103515625;
                 }
             } else if (exponent == 31u) {
-                return 0.0;
+                if (mantissa == 0u) {
+                    return sign * bitcast<f32>(0x7F800000u);
+                } else {
+                    return sign * bitcast<f32>(0x7FC00000u);
+                }
             } else {
                 return sign * (1.0 + f32(mantissa) / 1024.0) * pow(2.0, f32(exponent) - 15.0);
             }

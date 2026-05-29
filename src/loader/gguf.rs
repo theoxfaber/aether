@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::io::{Read, Seek};
 use std::ops::Deref;
 use std::sync::Arc;
+use tracing::warn;
 
 /// Compute SHA-256 hex digest of a file.
 /// Can be called before `GGUFModel::load` to verify model integrity.
@@ -317,7 +318,13 @@ impl GGUFLoader {
             )));
         }
 
-        let _version = read_u32(&mut cursor)?;
+        let version = read_u32(&mut cursor)?;
+        if version != 3 {
+            warn!(
+                "GGUF version {} detected — only v3 is fully supported. Parsing may be incorrect.",
+                version
+            );
+        }
         let tensor_count = read_u64(&mut cursor)?;
         let metadata_kv_count = read_u64(&mut cursor)?;
 

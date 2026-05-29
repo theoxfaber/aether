@@ -1,6 +1,7 @@
 use aether::inference::runner::{sample, LlamaRunner};
 use aether::inference::telemetry::LayerTelemetry;
 use aether::Error;
+use std::collections::HashSet;
 
 fn main() -> Result<(), Error> {
     let path = "mistral-7b-q4k.gguf";
@@ -28,7 +29,8 @@ fn main() -> Result<(), Error> {
             last_logits = runner.forward_one_hook(tok, pos, &mut dummy)?;
         }
 
-        let mut next_tok = sample(&last_logits, temp, top_p, &token_ids, 1.0);
+        let prev_set: HashSet<u32> = token_ids.iter().copied().collect();
+        let mut next_tok = sample(&last_logits, temp, top_p, &prev_set, 1.0);
         let decoded = runner.tokenizer.decode_one(next_tok);
         eprint!("{}", decoded);
         token_ids.push(next_tok);
@@ -38,7 +40,8 @@ fn main() -> Result<(), Error> {
             let mut dummy = vec![LayerTelemetry::default(); runner.model.config.num_layers];
             last_logits = runner.forward_one_hook(next_tok, pos, &mut dummy)?;
 
-            next_tok = sample(&last_logits, temp, top_p, &token_ids, 1.0);
+            let prev_set: HashSet<u32> = token_ids.iter().copied().collect();
+            next_tok = sample(&last_logits, temp, top_p, &prev_set, 1.0);
             if next_tok == runner.tokenizer.eos_id {
                 break;
             }

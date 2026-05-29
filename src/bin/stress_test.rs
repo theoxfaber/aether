@@ -3,6 +3,7 @@ use aether::inference::runner::{estimate_model_bytes, sample};
 use aether::inference::telemetry::LayerTelemetry;
 use aether::Error;
 use clap::Parser;
+use std::collections::HashSet;
 /// Stress test for Aether inference engine with real LLMs.
 ///
 /// Tests normal and streaming inference paths on models larger than 1B
@@ -163,7 +164,13 @@ fn run_scenario(
     let prefill_logits = last_logits.clone();
 
     // Sample first token (use temperature=0.7 for quality, not greedy)
-    let next_token = sample(&last_logits, SAMPLING_TEMPERATURE, 0.9, &token_ids, 1.0);
+    let next_token = sample(
+        &last_logits,
+        SAMPLING_TEMPERATURE,
+        0.9,
+        &token_ids.iter().copied().collect::<HashSet<u32>>(),
+        1.0,
+    );
     let first_token = runner.tokenizer.decode_one(next_token);
 
     // Decode loop
@@ -191,7 +198,13 @@ fn run_scenario(
             }
         };
 
-        let next = sample(&logits, SAMPLING_TEMPERATURE, 0.9, &all_tokens, 1.0);
+        let next = sample(
+            &logits,
+            SAMPLING_TEMPERATURE,
+            0.9,
+            &all_tokens.iter().copied().collect::<HashSet<u32>>(),
+            1.0,
+        );
         if next == runner.tokenizer.eos_id {
             break;
         }

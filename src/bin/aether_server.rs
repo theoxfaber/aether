@@ -26,6 +26,7 @@ use axum::{
 
 use clap::Parser;
 use futures::StreamExt;
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -634,7 +635,7 @@ async fn handle_chat_completions(
                 &last_logits,
                 temperature,
                 top_p,
-                &prev_tokens,
+                &prev_tokens.iter().copied().collect::<HashSet<u32>>(),
                 repetition_penalty,
             );
             prev_tokens.push(next_token);
@@ -669,7 +670,7 @@ async fn handle_chat_completions(
                     &logits,
                     temperature,
                     top_p,
-                    &prev_tokens,
+                    &prev_tokens.iter().copied().collect::<HashSet<u32>>(),
                     repetition_penalty,
                 );
                 prev_tokens.push(next_token);
@@ -852,7 +853,7 @@ async fn handle_completions(
                 &last_logits,
                 temperature,
                 top_p,
-                &prev_tokens,
+                &prev_tokens.iter().copied().collect::<HashSet<u32>>(),
                 repetition_penalty,
             );
             prev_tokens.push(next_token);
@@ -886,7 +887,7 @@ async fn handle_completions(
                     &logits,
                     temperature,
                     top_p,
-                    &prev_tokens,
+                    &prev_tokens.iter().copied().collect::<HashSet<u32>>(),
                     repetition_penalty,
                 );
                 prev_tokens.push(next_token);

@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use std::collections::HashSet;
 use std::io::Write;
 use std::process::Command;
 use std::time::Instant;
@@ -175,7 +176,13 @@ impl BenchRun {
         self.prefill_tok_s = self.prefill_tokens as f64 / prefill_time.as_secs_f64().max(1e-9);
 
         // Sample first token
-        let next_token = aether::inference::runner::sample(&last_logits, 0.0, 0.0, &token_ids, 1.0);
+        let next_token = aether::inference::runner::sample(
+            &last_logits,
+            0.0,
+            0.0,
+            &token_ids.iter().copied().collect::<HashSet<u32>>(),
+            1.0,
+        );
         let ttft = ttft_start.elapsed();
         self.ttft_ms = ttft.as_secs_f64() * 1000.0;
         self.first_token = runner.tokenizer.decode_one(next_token);
@@ -208,7 +215,13 @@ impl BenchRun {
             ];
             last_logits = runner.decode_step(prev_token, pos, &mut step_tel)?;
 
-            let next = aether::inference::runner::sample(&last_logits, 0.0, 0.0, &all_tokens, 1.0);
+            let next = aether::inference::runner::sample(
+                &last_logits,
+                0.0,
+                0.0,
+                &all_tokens.iter().copied().collect::<HashSet<u32>>(),
+                1.0,
+            );
             all_tokens.push(next);
             if next == runner.tokenizer.eos_id {
                 break;

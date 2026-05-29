@@ -86,7 +86,7 @@ pub struct BufferEntry {
 pub struct BufferRegistry {
     entries: Mutex<HashMap<TensorId, BufferEntry>>,
     /// Total bytes currently resident on GPU
-    gpu_bytes_used: Mutex<usize>,
+    gpu_bytes_used: AtomicUsize,
     /// Soft limit: evict to CPU when GPU usage exceeds this
     gpu_byte_limit: usize,
     /// Peak GPU bytes allocated
@@ -106,7 +106,7 @@ impl BufferRegistry {
     pub fn new(gpu_byte_limit: usize) -> Self {
         Self {
             entries: Mutex::new(HashMap::new()),
-            gpu_bytes_used: Mutex::new(0),
+            gpu_bytes_used: AtomicUsize::new(0),
             gpu_byte_limit,
             peak_gpu_bytes: Mutex::new(0),
             upload_count: AtomicUsize::new(0),
@@ -128,7 +128,7 @@ impl BufferRegistry {
     ) -> Self {
         let registry = Self {
             entries: Mutex::new(HashMap::new()),
-            gpu_bytes_used: Mutex::new(0),
+            gpu_bytes_used: AtomicUsize::new(0),
             gpu_byte_limit,
             peak_gpu_bytes: Mutex::new(0),
             upload_count: AtomicUsize::new(0),
@@ -227,17 +227,13 @@ impl BufferRegistry {
             },
         );
 
-        let mut gpu_used = self
-            .gpu_bytes_used
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        *gpu_used += byte_size;
+        let gpu_used = self.gpu_bytes_used.fetch_add(byte_size, Ordering::Relaxed) + byte_size;
         let mut peak = self
             .peak_gpu_bytes
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        if *gpu_used > *peak {
-            *peak = *gpu_used;
+        if gpu_used > *peak {
+            *peak = gpu_used;
         }
         Ok(())
     }
@@ -321,17 +317,13 @@ impl BufferRegistry {
             entry.gpu_buffer = Some(gpu_buffer);
             entry.location = BufferLocation::Both;
 
-            let mut gpu_used = self
-                .gpu_bytes_used
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            *gpu_used += byte_size;
+            let gpu_used = self.gpu_bytes_used.fetch_add(byte_size, Ordering::Relaxed) + byte_size;
             let mut peak = self
                 .peak_gpu_bytes
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
-            if *gpu_used > *peak {
-                *peak = *gpu_used;
+            if gpu_used > *peak {
+                *peak = gpu_used;
             }
             self.upload_count.fetch_add(1, Ordering::Relaxed);
         }
@@ -541,11 +533,8 @@ impl BufferRegistry {
     ) -> Result<(), crate::Error> {
         let max_iterations = self.entries.lock().unwrap_or_else(|e| e.into_inner()).len() + 1;
         for _ in 0..max_iterations {
-            // Check memory pressure under lock
-            let gpu_used = *self
-                .gpu_bytes_used
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
+            // Check memory pressure
+            let gpu_used = self.gpu_bytes_used.load(Ordering::Relaxed);
             if gpu_used + needed_bytes <= self.gpu_byte_limit {
                 break;
             }
@@ -610,11 +599,7 @@ impl BufferRegistry {
                         entry.gpu_buffer = None;
                         entry.location = BufferLocation::Cpu;
 
-                        let mut gpu_used = self
-                            .gpu_bytes_used
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner());
-                        *gpu_used = gpu_used.saturating_sub(byte_size);
+                        self.gpu_bytes_used.fetch_sub(byte_size, Ordering::Relaxed);
                         self.eviction_count.fetch_add(1, Ordering::Relaxed);
                     }
                 }
@@ -631,11 +616,8 @@ impl BufferRegistry {
         let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(entry) = entries.remove(&id) {
             if entry.location == BufferLocation::Gpu || entry.location == BufferLocation::Both {
-                let mut gpu_used = self
-                    .gpu_bytes_used
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner());
-                *gpu_used = gpu_used.saturating_sub(entry.byte_size);
+                self.gpu_bytes_used
+                    .fetch_sub(entry.byte_size, Ordering::Relaxed);
                 self.eviction_count.fetch_add(1, Ordering::Relaxed);
             }
         }
@@ -726,11 +708,8 @@ impl BufferRegistry {
                 entry.gpu_buffer = None;
                 entry.location = BufferLocation::Cpu;
                 // Subtract from gpu bytes used
-                let mut gpu_used = self
-                    .gpu_bytes_used
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner());
-                *gpu_used = gpu_used.saturating_sub(entry.byte_size);
+                self.gpu_bytes_used
+                    .fetch_sub(entry.byte_size, Ordering::Relaxed);
             }
         }
     }

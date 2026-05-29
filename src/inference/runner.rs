@@ -1,4 +1,5 @@
 /// LlamaRunner: full autoregressive inference engine.
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -70,7 +71,7 @@ struct ScratchSpace {
 /// assignment. Supports CPU-only, GPU-accelerated (WGPU/Metal), and
 /// hybrid (memory-aware) inference modes.
 pub struct LlamaRunner {
-    pub model: LlamaModel,
+    pub model: Arc<LlamaModel>,
     pub kv: StaticKVCache,
     pub tokenizer: Tokenizer,
     pub telemetry: ExecutionTelemetry,
@@ -375,7 +376,7 @@ impl LlamaRunner {
         }
 
         Ok(Self {
-            model,
+            model: Arc::new(model),
             kv,
             tokenizer,
             telemetry,
@@ -460,11 +461,12 @@ impl LlamaRunner {
             "PREFILL logits: top-5: {:?}",
             &top_k_indices(&last_logits, 5)
         );
+        let prev_set: HashSet<u32> = token_ids.iter().copied().collect();
         let mut next_token = sample(
             &last_logits,
             temperature,
             top_p,
-            &token_ids,
+            &prev_set,
             repetition_penalty,
         );
         token_ids.push(next_token);
@@ -500,11 +502,12 @@ impl LlamaRunner {
                 self.tokenizer.decode_one(next_token),
                 &top_k_indices(&last_logits, 5)
             );
+            let prev_set: HashSet<u32> = token_ids.iter().copied().collect();
             next_token = sample(
                 &last_logits,
                 temperature,
                 top_p,
-                &token_ids,
+                &prev_set,
                 repetition_penalty,
             );
             token_ids.push(next_token);
@@ -1741,7 +1744,7 @@ pub fn sample(
     logits: &[f32],
     temperature: f32,
     top_p: f32,
-    prev_tokens: &[u32],
+    prev_tokens: &HashSet<u32>,
     repetition_penalty: f32,
 ) -> u32 {
     // Apply repetition penalty + temperature scaling
@@ -2015,7 +2018,8 @@ mod tests {
         }
 
         // Greedy decode of first token (temperature=0 for reproducibility)
-        let first_token = sample(&logits_prefill_gpu, 0.0, 0.9, &tokens, 1.0);
+        let prev_set: HashSet<u32> = tokens.iter().copied().collect();
+        let first_token = sample(&logits_prefill_gpu, 0.0, 0.9, &prev_set, 1.0);
         let pos = tokens.len();
 
         // GPU-runner decode step — GPU layers use GPU path

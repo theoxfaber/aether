@@ -160,6 +160,11 @@ pub fn matmul_q4_k(a: &[f32], b_quant: &[u8], m: usize, n: usize, k: usize, c: &
     if m > 1 {
         return matmul_q4_k_batched(a, b_quant, m, n, k, c);
     }
+    assert_eq!(
+        k % Q4K_BLOCK_SIZE,
+        0,
+        "k must be a multiple of Q4K_BLOCK_SIZE in matmul_q4_k"
+    );
     let blocks_per_row = k / Q4K_BLOCK_SIZE;
 
     c.par_iter_mut().enumerate().for_each(|(idx, out)| {

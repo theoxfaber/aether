@@ -246,9 +246,16 @@ pub mod cpu_mod {
                     let n = dims[1];
                     let data = input.data();
                     let mut out_data = vec![0.0; m * n];
-                    for r in 0..m {
-                        for c in 0..n {
-                            out_data[c * m + r] = data[r * n + c];
+                    let tile = 16;
+                    for r in (0..m).step_by(tile) {
+                        let r_end = (r + tile).min(m);
+                        for c in (0..n).step_by(tile) {
+                            let c_end = (c + tile).min(n);
+                            for tr in r..r_end {
+                                for tc in c..c_end {
+                                    out_data[tc * m + tr] = data[tr * n + tc];
+                                }
+                            }
                         }
                     }
                     Ok(Tensor::new(out_data, Shape::new(vec![n, m])))
@@ -420,11 +427,21 @@ pub mod cpu_mod {
                     let num_elements = out_shape.num_elements();
                     let mut out_data = vec![0.0; num_elements];
 
-                    let _out_strides = get_strides(out_shape.dims());
                     let input_strides: Vec<Vec<usize>> = inputs
                         .iter()
                         .map(|t| get_strides(t.shape().dims()))
                         .collect();
+
+                    let mut axis_owner: Vec<usize> = Vec::with_capacity(total_concat_size);
+                    let mut tensor_axis_start: Vec<usize> = Vec::with_capacity(concat_sizes.len());
+                    let mut accum = 0;
+                    for (i, &size) in concat_sizes.iter().enumerate() {
+                        tensor_axis_start.push(accum);
+                        for _ in 0..size {
+                            axis_owner.push(i);
+                        }
+                        accum += size;
+                    }
 
                     for (idx, out_val) in out_data.iter_mut().enumerate() {
                         let mut temp = idx;
@@ -434,26 +451,14 @@ pub mod cpu_mod {
                             temp /= out_shape.dims()[i];
                         }
 
-                        let val_at_axis = coords[*axis];
-                        let mut accum = 0;
-                        let mut tensor_idx = 0;
-                        let mut axis_offset = 0;
-                        for (i, &size) in concat_sizes.iter().enumerate() {
-                            if val_at_axis < accum + size {
-                                tensor_idx = i;
-                                axis_offset = val_at_axis - accum;
-                                break;
-                            }
-                            accum += size;
-                        }
+                        let axis_pos = coords[*axis];
+                        let t_idx = axis_owner[axis_pos];
+                        coords[*axis] = axis_pos - tensor_axis_start[t_idx];
 
-                        let mut input_coords = coords.clone();
-                        input_coords[*axis] = axis_offset;
-
-                        let t = inputs[tensor_idx];
+                        let t = inputs[t_idx];
                         let mut input_idx = 0;
                         for i in 0..ndim {
-                            input_idx += input_coords[i] * input_strides[tensor_idx][i];
+                            input_idx += coords[i] * input_strides[t_idx][i];
                         }
                         *out_val = t.data()[input_idx];
                     }

@@ -132,6 +132,7 @@ impl QuantWeight {
 }
 
 /// A single Llama decoder layer's weights.
+#[derive(Clone)]
 pub struct LlamaLayerWeights {
     pub attn_norm: Vec<f32>,    // RMSNorm weight [d_model] — always F32/F16
     pub q_proj: QuantWeight,    // [d_model, d_model]
@@ -145,6 +146,7 @@ pub struct LlamaLayerWeights {
 }
 
 /// Full LlamaModel weights loaded from GGUF.
+#[derive(Clone)]
 pub struct LlamaModel {
     pub config: LlamaConfig,
     pub token_embeddings: Vec<f32>, // [vocab_size × d_model] — dequantized

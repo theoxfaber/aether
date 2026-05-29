@@ -368,7 +368,8 @@ pub extern "C" fn aether_sample(
     with_model(model, |inner| {
         let vocab = inner.runner.model.config.vocab_size;
         let logits = unsafe { std::slice::from_raw_parts(logits, vocab) };
-        let token = sample(logits, temperature, top_p, &[], 1.0);
+        let prev_set = std::collections::HashSet::new();
+        let token = sample(logits, temperature, top_p, &prev_set, 1.0);
         token as i32
     })
 }

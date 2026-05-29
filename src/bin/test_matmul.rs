@@ -51,7 +51,7 @@ fn main() -> Result<(), Error> {
 
     // Run with F32 lm_head (dequantized weight, f32 matmul)
     let mut runner2 = LlamaRunner::from_gguf("mistral-7b-q4k.gguf")?;
-    runner2.model.lm_head = QuantWeight {
+    std::sync::Arc::make_mut(&mut runner2.model).lm_head = QuantWeight {
         data: SharedBytes::new_owned(bytemuck::cast_slice(&lm_f32).to_vec()),
         dtype: aether::loader::gguf::GGUFDtype::F32,
         shape: vec![vocab_size, d_model],

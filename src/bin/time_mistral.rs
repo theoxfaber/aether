@@ -1,6 +1,7 @@
 use aether::inference::runner::{sample, LlamaRunner};
 use aether::inference::telemetry::LayerTelemetry;
 use aether::Error;
+use std::collections::HashSet;
 use std::time::Instant;
 
 fn main() -> Result<(), Error> {
@@ -17,7 +18,8 @@ fn main() -> Result<(), Error> {
     eprintln!("Prefill done in {:.1}s", t1.elapsed().as_secs_f64());
 
     let mut last_logits = logits;
-    let mut next_tok = sample(&last_logits, 0.0, 1.0, &tokens, 1.0);
+    let prev_set: HashSet<u32> = tokens.iter().copied().collect();
+    let mut next_tok = sample(&last_logits, 0.0, 1.0, &prev_set, 1.0);
     eprint!("{}", runner.tokenizer.decode_one(next_tok));
 
     for step in 0..9 {
@@ -26,7 +28,7 @@ fn main() -> Result<(), Error> {
         let mut dummy = vec![LayerTelemetry::default(); runner.model.config.num_layers];
         last_logits = runner.forward_one_hook(next_tok, pos, &mut dummy)?;
         eprint!(" ({}s)", t2.elapsed().as_secs_f32());
-        next_tok = sample(&last_logits, 0.0, 1.0, &[], 1.0);
+        next_tok = sample(&last_logits, 0.0, 1.0, &HashSet::new(), 1.0);
         if next_tok == runner.tokenizer.eos_id {
             break;
         }

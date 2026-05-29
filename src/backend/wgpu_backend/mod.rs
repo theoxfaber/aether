@@ -94,26 +94,63 @@ pub mod wgpu_backend_mod {
                 i++;
             }}
 
-            // 3. Softmax: find max score, compute exp and sum, normalize
-            if (dim == 0u) {{
-                var max_val: f32 = -3.402823e+38;
-                for (var p = 0u; p < seq && p <= causal_pos; p++) {{
-                    let s = shared_scores[p];
-                    if (s > max_val) {{ max_val = s; }}
-                }}
+            // 3. Softmax: distributed across all 128 threads via tree reduction
+            // Each thread processes a strided chunk of shared_scores
+            var local_max: f32 = -3.402823e+38;
+            var j = dim;
+            while (j < seq && j <= causal_pos) {{
+                let s = shared_scores[j];
+                if (s > local_max) {{ local_max = s; }}
+                j += 128u;
+            }}
+            shared_partial[dim] = local_max;
+            workgroupBarrier();
 
-                var sum_val = 0.0;
-                for (var p = 0u; p < seq && p <= causal_pos; p++) {{
-                    let e = exp(shared_scores[p] - max_val);
-                    shared_scores[p] = e;
-                    sum_val += e;
+            // Tree reduction: find global max
+            var offset = 64u;
+            while (offset > 0u) {{
+                if (dim < offset) {{
+                    let other = shared_partial[dim + offset];
+                    if (other > shared_partial[dim]) {{
+                        shared_partial[dim] = other;
+                    }}
                 }}
+                workgroupBarrier();
+                offset /= 2u;
+            }}
+            let max_val = shared_partial[0];
+            workgroupBarrier();
 
-                // Guard against total underflow (all exp≈0 → 0/0 = NaN)
-                let inv_sum = select(1.0 / sum_val, 0.0, sum_val == 0.0);
-                for (var p = 0u; p < seq && p <= causal_pos; p++) {{
-                    shared_scores[p] = shared_scores[p] * inv_sum;
+            // Compute exp and partial sum
+            var local_sum = 0.0;
+            j = dim;
+            while (j < seq && j <= causal_pos) {{
+                let e = exp(shared_scores[j] - max_val);
+                shared_scores[j] = e;
+                local_sum += e;
+                j += 128u;
+            }}
+            shared_partial[dim] = local_sum;
+            workgroupBarrier();
+
+            // Tree reduction: sum
+            offset = 64u;
+            while (offset > 0u) {{
+                if (dim < offset) {{
+                    shared_partial[dim] += shared_partial[dim + offset];
                 }}
+                workgroupBarrier();
+                offset /= 2u;
+            }}
+            let sum_val = shared_partial[0];
+            let inv_sum = select(1.0 / sum_val, 0.0, sum_val == 0.0);
+            workgroupBarrier();
+
+            // Normalize
+            j = dim;
+            while (j < seq && j <= causal_pos) {{
+                shared_scores[j] = shared_scores[j] * inv_sum;
+                j += 128u;
             }}
             workgroupBarrier();
 
