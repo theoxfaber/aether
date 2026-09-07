@@ -274,18 +274,24 @@ impl LlamaConfig {
         let d_ff = gguf_usize(meta, &key("feed_forward_length"))
             .ok_or_else(|| Error::ExecutionError("Missing feed_forward_length".into()))?;
         let vocab_size = match model.tensors.get("token_embd.weight") {
-            Some(t) => t.shape[1],
+            Some(t) => *t.shape.get(1).ok_or_else(|| {
+                Error::ExecutionError(
+                    "token_embd.weight must have at least 2 dims to determine vocab size".into(),
+                )
+            })?,
             None => return Err(Error::ExecutionError("Cannot determine vocab size".into())),
         };
         let max_seq_len = gguf_usize(meta, &key("context_length")).unwrap_or(2048);
         let rope_base = gguf_f32(meta, &key("rope.freq_base")).unwrap_or(10000.0);
         let rms_norm_eps = gguf_f32(meta, &key("attention.layer_norm_rms_epsilon")).unwrap_or(1e-5);
-        let head_dim = d_model / num_heads;
+        // Guard the division: `head_count = 0` in a hostile file must fail
+        // validation below, not panic here with divide-by-zero.
+        let head_dim = d_model.checked_div(num_heads).unwrap_or(0);
         let rope_dim = gguf_usize(meta, &key("rope.dimension_count")).unwrap_or(head_dim);
 
         let sliding_window = gguf_usize(meta, &key("attention.sliding_window_length"));
 
-        Ok(LlamaConfig {
+        let cfg = LlamaConfig {
             vocab_size,
             d_model,
             num_layers,
@@ -301,7 +307,83 @@ impl LlamaConfig {
                 architecture: arch,
                 sliding_window,
             },
-        })
+        };
+        cfg.validate()?;
+        Ok(cfg)
+    }
+}
+
+impl LlamaConfig {
+    /// Reject corrupt/absurd hyper-parameters before any allocation.
+    ///
+    /// Without this, a hostile GGUF sets `head_count = 0` (`d_model / 0`
+    /// panics), `block_count = 0` (`num_layers - 1` underflows in the load
+    /// loop), or `embedding_length = 2**40` (multi-GB `vec![0.0; …]`
+    /// allocations downstream). All limits are far above any real model.
+    pub fn validate(&self) -> Result<(), Error> {
+        let bad = |msg: String| Error::ExecutionError(format!("Invalid model config: {msg}"));
+        if !(1..=65_536).contains(&self.d_model) {
+            return Err(bad(format!(
+                "d_model={} out of range 1..=65536",
+                self.d_model
+            )));
+        }
+        if !(1..=512).contains(&self.num_layers) {
+            return Err(bad(format!(
+                "num_layers={} out of range 1..=512",
+                self.num_layers
+            )));
+        }
+        if !(1..=1024).contains(&self.num_heads) {
+            return Err(bad(format!(
+                "num_heads={} out of range 1..=1024",
+                self.num_heads
+            )));
+        }
+        if self.num_kv_heads == 0 || self.num_kv_heads > self.num_heads {
+            return Err(bad(format!(
+                "num_kv_heads={} must satisfy 1..=num_heads ({})",
+                self.num_kv_heads, self.num_heads
+            )));
+        }
+        if !self.d_model.is_multiple_of(self.num_heads) {
+            return Err(bad(format!(
+                "d_model={} not divisible by num_heads={}",
+                self.d_model, self.num_heads
+            )));
+        }
+        if !(1..=1_048_576).contains(&self.d_ff) {
+            return Err(bad(format!("d_ff={} out of range", self.d_ff)));
+        }
+        if !(1..=10_000_000).contains(&self.vocab_size) {
+            return Err(bad(format!("vocab_size={} out of range", self.vocab_size)));
+        }
+        if self.max_seq_len == 0 || self.max_seq_len > 16_777_216 {
+            return Err(bad(format!(
+                "max_seq_len={} out of range 1..=16777216",
+                self.max_seq_len
+            )));
+        }
+        if !(self.rope_base.is_finite() && self.rope_base > 0.0) {
+            return Err(bad(format!(
+                "rope_base={} must be finite and > 0",
+                self.rope_base
+            )));
+        }
+        if !(self.rms_norm_eps.is_finite() && self.rms_norm_eps >= 0.0) {
+            return Err(bad(format!(
+                "rms_norm_eps={} must be finite and >= 0",
+                self.rms_norm_eps
+            )));
+        }
+        // `rope_dim` is currently informational only (RoPE tables are sized
+        // by `head_dim` in the forward pass), so only sanity-bound it:
+        // real converters emit values at or below head_dim, but out-of-range
+        // values must not fail a load.
+        if self.rope_dim == 0 || self.rope_dim > 1_048_576 {
+            return Err(bad(format!("rope_dim={} out of range", self.rope_dim)));
+        }
+        Ok(())
     }
 }
 
@@ -374,7 +456,19 @@ fn transpose_quantized_bytes(
     target_shape: &[usize],
 ) -> Result<SharedBytes, Error> {
     let f32_data = dequantize(data, dtype, &[k, n]);
-    let mut transposed = vec![0.0f32; k * n];
+    let len = k.checked_mul(n).ok_or_else(|| {
+        Error::ExecutionError("quantized weight transpose size overflows usize".into())
+    })?;
+    if f32_data.len() != len {
+        return Err(Error::ExecutionError(format!(
+            "dequantized weight has {} elements, expected {} ({}x{})",
+            f32_data.len(),
+            len,
+            k,
+            n
+        )));
+    }
+    let mut transposed = vec![0.0f32; len];
     for i in 0..k {
         for j in 0..n {
             transposed[j * k + i] = f32_data[i * n + j];
@@ -393,14 +487,22 @@ pub(crate) fn load_f32_tensor(
     let t = tensors
         .get(name)
         .ok_or_else(|| Error::ExecutionError(format!("Missing tensor: {}", name)))?;
-    let expected = cfg.vocab_size * cfg.d_model;
-    let actual: usize = t.shape.iter().product();
-    // GGUF token embedding shape is [vocab_size, d_model]
+    let expected = cfg
+        .vocab_size
+        .checked_mul(cfg.d_model)
+        .ok_or_else(|| Error::ExecutionError("token embedding size overflows usize".into()))?;
+    let actual: usize = t.shape.iter().try_fold(1usize, |acc, &d| {
+        acc.checked_mul(d)
+            .ok_or_else(|| Error::ExecutionError("token embedding shape overflows usize".into()))
+    })?;
+    // GGUF token embedding shape is [vocab_size, d_model].
+    // A mismatch previously only warned and then indexed out of bounds in
+    // the transpose loop — fail loudly instead.
     if actual != expected {
-        warn!(
+        return Err(Error::ExecutionError(format!(
             "token_embd.weight has {} elements, expected {} (vocab={} d_model={})",
             actual, expected, cfg.vocab_size, cfg.d_model
-        );
+        )));
     }
     Ok(dequantize(&t.data, t.dtype, &t.shape))
 }
@@ -408,9 +510,11 @@ pub(crate) fn load_f32_tensor(
 fn gguf_usize(meta: &HashMap<String, GGUFValue>, key: &str) -> Option<usize> {
     match meta.get(key) {
         Some(GGUFValue::Uint32(v)) => Some(*v as usize),
-        Some(GGUFValue::Uint64(v)) => Some(*v as usize),
-        Some(GGUFValue::Int32(v)) => Some(*v as usize),
-        Some(GGUFValue::Int64(v)) => Some(*v as usize),
+        Some(GGUFValue::Uint64(v)) => usize::try_from(*v).ok(),
+        // Negative Int* values previously wrapped to huge usize via `as`
+        // casts (e.g. head_count = -1 → 2**64 → GBs of allocation).
+        Some(GGUFValue::Int32(v)) => usize::try_from(*v).ok(),
+        Some(GGUFValue::Int64(v)) => usize::try_from(*v).ok(),
         _ => None,
     }
 }

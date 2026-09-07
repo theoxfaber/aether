@@ -32,6 +32,22 @@ pub fn sha256_hex(path: &str) -> Result<String, Error> {
 
 pub const GGUF_MAGIC: u32 = 0x46554747; // "GGUF" little-endian
 
+/// Upper bounds for untrusted GGUF headers.
+///
+/// A corrupt or malicious file can claim petabyte string lengths, billions
+/// of metadata entries, or wrapping tensor offsets. Without caps the parser
+/// would abort on giant allocations (`vec![0u8; len]`), burn CPU looping to
+/// EOF, or — in release builds — wrap `offset + size` past the bounds check.
+/// Real-world models stay far below these limits (a few thousand tensors,
+/// KiB-scale metadata strings, ≤256k-entry tokenizer arrays).
+const MAX_STRING_LEN: usize = 16 * 1024 * 1024; // 16 MiB
+const MAX_METADATA_KV: u64 = 100_000;
+const MAX_TENSOR_COUNT: u64 = 100_000;
+const MAX_N_DIMS: usize = 32;
+const MAX_ARRAY_LEN: u64 = 32_000_000;
+const MAX_ALIGNMENT: u64 = 1 << 20; // 1 MiB
+const DEFAULT_ALIGNMENT: u64 = 32;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GGUFValueType {
     Uint8 = 0,
@@ -297,11 +313,12 @@ impl GGUFLoader {
     pub fn load(path: &str) -> Result<GGUFModel, Error> {
         let file = std::fs::File::open(path)
             .map_err(|e| Error::ExecutionError(format!("Failed to open GGUF file: {}", e)))?;
-        // SAFETY: `file` was just opened by `File::open` and refers to a valid,
-        // open file descriptor. `memmap2::Mmap::map` requires the file to remain
-        // open for the lifetime of the mapping; `file` lives in the same scope
-        // and the returned `Mmap` is immediately wrapped in `Arc` for the
-        // duration of the model's lifetime. The file is not truncated or mutated.
+        // SAFETY: `memmap2::Mmap::map` only requires a valid open file
+        // descriptor at map time. The returned mapping keeps its own
+        // OS-level reference (fd duplication on Unix, mapping handle on
+        // Windows), so it stays valid after `file` is closed at the end of
+        // this function. Callers must still avoid externally truncating or
+        // mutating the file while mapped (that raises SIGBUS on access).
         let mmap = unsafe { memmap2::Mmap::map(&file) }
             .map_err(|e| Error::ExecutionError(format!("Failed to mmap GGUF file: {}", e)))?;
         let mmap = Arc::new(mmap);
@@ -328,6 +345,21 @@ impl GGUFLoader {
         let tensor_count = read_u64(&mut cursor)?;
         let metadata_kv_count = read_u64(&mut cursor)?;
 
+        // Reject absurd header counts before looping: a corrupt file claiming
+        // u64::MAX entries would otherwise burn CPU until EOF.
+        if metadata_kv_count > MAX_METADATA_KV {
+            return Err(Error::ExecutionError(format!(
+                "GGUF metadata count {} exceeds limit {}",
+                metadata_kv_count, MAX_METADATA_KV
+            )));
+        }
+        if tensor_count > MAX_TENSOR_COUNT {
+            return Err(Error::ExecutionError(format!(
+                "GGUF tensor count {} exceeds limit {}",
+                tensor_count, MAX_TENSOR_COUNT
+            )));
+        }
+
         // Read metadata
         let mut metadata = HashMap::new();
         for _ in 0..metadata_kv_count {
@@ -342,17 +374,31 @@ impl GGUFLoader {
             tensor_infos.push(info);
         }
 
+        // Only unsigned values are valid; negative Int* values wrap to huge
+        // u64 with `as` casts, so validate sign explicitly. Zero would cause
+        // a `% 0` panic below, so fall back to the spec default instead.
         let alignment = match metadata.get("general.alignment") {
             Some(GGUFValue::Uint32(v)) => *v as u64,
             Some(GGUFValue::Uint64(v)) => *v,
-            Some(GGUFValue::Int32(v)) => *v as u64,
-            Some(GGUFValue::Int64(v)) => *v as u64,
             Some(GGUFValue::Uint16(v)) => *v as u64,
-            Some(GGUFValue::Int16(v)) => *v as u64,
             Some(GGUFValue::Uint8(v)) => *v as u64,
-            Some(GGUFValue::Int8(v)) => *v as u64,
-            _ => 32u64,
+            Some(GGUFValue::Int32(v)) if *v > 0 => *v as u64,
+            Some(GGUFValue::Int64(v)) if *v > 0 => *v as u64,
+            Some(GGUFValue::Int16(v)) if *v > 0 => *v as u64,
+            Some(GGUFValue::Int8(v)) if *v > 0 => *v as u64,
+            _ => DEFAULT_ALIGNMENT,
         };
+        let alignment = if alignment == 0 {
+            DEFAULT_ALIGNMENT
+        } else {
+            alignment
+        };
+        if alignment > MAX_ALIGNMENT {
+            return Err(Error::ExecutionError(format!(
+                "GGUF alignment {} exceeds limit {}",
+                alignment, MAX_ALIGNMENT
+            )));
+        }
 
         // Alignment padding (tensor data starts at page-aligned offset)
         let pos = cursor
@@ -364,16 +410,27 @@ impl GGUFLoader {
         } else {
             alignment - remainder
         };
-        let tensor_data_start_pos = pos + padding;
+        let tensor_data_start_pos = pos
+            .checked_add(padding)
+            .ok_or_else(|| Error::ExecutionError("GGUF data offset overflow".into()))?;
 
         // Slice tensor data zero-copy
         let mut tensors = HashMap::new();
         for info in tensor_infos {
-            let byte_size = compute_tensor_byte_size(&info.dtype, &info.shape);
-            let offset = tensor_data_start_pos + info.offset;
+            let byte_size = compute_tensor_byte_size(&info.dtype, &info.shape)?;
+            // checked_add: in release builds plain `+` wraps, which would
+            // turn a huge offset into a small one and bypass the bounds check.
+            let offset = tensor_data_start_pos
+                .checked_add(info.offset)
+                .ok_or_else(|| {
+                    Error::ExecutionError(format!("Tensor '{}' offset overflow", info.name))
+                })?;
+            let end = offset.checked_add(byte_size as u64).ok_or_else(|| {
+                Error::ExecutionError(format!("Tensor '{}' end offset overflow", info.name))
+            })?;
 
             // Validate that we don't read out of bounds
-            if offset as usize + byte_size > mmap.len() {
+            if end > mmap.len() as u64 {
                 return Err(Error::ExecutionError(format!(
                     "Tensor '{}' offset out of bounds",
                     info.name
@@ -469,6 +526,14 @@ fn read_f64<R: Read>(r: &mut R) -> Result<f64, Error> {
 
 fn read_string<R: Read>(r: &mut R) -> Result<String, Error> {
     let len = read_u64(r)? as usize;
+    // A corrupt file can claim a petabyte string: `vec![0u8; len]` would
+    // abort the process on allocation failure. Cap before allocating.
+    if len > MAX_STRING_LEN {
+        return Err(Error::ExecutionError(format!(
+            "GGUF string length {} exceeds limit {}",
+            len, MAX_STRING_LEN
+        )));
+    }
     let mut buf = vec![0u8; len];
     r.read_exact(&mut buf)
         .map_err(|e| Error::ExecutionError(format!("Read string error: {}", e)))?;
@@ -501,10 +566,18 @@ fn read_value<R: Read>(r: &mut R, vt: GGUFValueType) -> Result<GGUFValue, Error>
         GGUFValueType::Array => {
             let array_type = read_u32(r)?;
             let array_len = read_u64(r)?;
+            if array_len > MAX_ARRAY_LEN {
+                return Err(Error::ExecutionError(format!(
+                    "GGUF array length {} exceeds limit {}",
+                    array_len, MAX_ARRAY_LEN
+                )));
+            }
             let elem_vt = GGUFValueType::from_u32(array_type).ok_or_else(|| {
                 Error::ExecutionError(format!("Unknown array element type: {}", array_type))
             })?;
-            let mut elems = Vec::with_capacity(array_len as usize);
+            // Reserve incrementally: `with_capacity(array_len)` on a
+            // hostile length would over-commit gigabytes of RSS.
+            let mut elems = Vec::with_capacity((array_len.min(4096)) as usize);
             for _ in 0..array_len {
                 elems.push(read_value(r, elem_vt)?);
             }
@@ -519,6 +592,12 @@ fn read_value<R: Read>(r: &mut R, vt: GGUFValueType) -> Result<GGUFValue, Error>
 fn read_tensor_info<R: Read + Seek>(r: &mut R) -> Result<TensorInfo, Error> {
     let name = read_string(r)?;
     let n_dims = read_u32(r)? as usize;
+    if n_dims > MAX_N_DIMS {
+        return Err(Error::ExecutionError(format!(
+            "GGUF tensor '{}' has {} dims, limit is {}",
+            name, n_dims, MAX_N_DIMS
+        )));
+    }
     let mut shape = Vec::with_capacity(n_dims);
     for _ in 0..n_dims {
         shape.push(read_u64(r)? as usize);
@@ -536,16 +615,29 @@ fn read_tensor_info<R: Read + Seek>(r: &mut R) -> Result<TensorInfo, Error> {
     })
 }
 
-fn compute_tensor_byte_size(dtype: &GGUFDtype, shape: &[usize]) -> usize {
-    let num_elements: usize = shape.iter().product();
+fn compute_tensor_byte_size(dtype: &GGUFDtype, shape: &[usize]) -> Result<usize, Error> {
+    // `product()` and `*` wrap in release builds; a hostile shape could
+    // otherwise shrink the size and pass the bounds check with a short slice.
+    let mut num_elements: usize = 1;
+    for &dim in shape {
+        num_elements = num_elements
+            .checked_mul(dim)
+            .ok_or_else(|| Error::ExecutionError("GGUF tensor shape overflows usize".into()))?;
+    }
     if *dtype == GGUFDtype::F32 {
-        return num_elements * 4;
+        return num_elements
+            .checked_mul(4)
+            .ok_or_else(|| Error::ExecutionError("GGUF tensor byte size overflows usize".into()));
     }
     if *dtype == GGUFDtype::F16 {
-        return num_elements * 2;
+        return num_elements
+            .checked_mul(2)
+            .ok_or_else(|| Error::ExecutionError("GGUF tensor byte size overflows usize".into()));
     }
     let block_sz = dtype.block_size();
     let block_byte = dtype.block_byte_size();
     let num_blocks = num_elements.div_ceil(block_sz);
-    num_blocks * block_byte
+    num_blocks
+        .checked_mul(block_byte)
+        .ok_or_else(|| Error::ExecutionError("GGUF tensor byte size overflows usize".into()))
 }
