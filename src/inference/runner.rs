@@ -397,9 +397,7 @@ impl LlamaRunner {
 
         if options.cpu_only {
             info!("LoadOptions.cpu_only: forcing all layers to CPU (stable inference mode)");
-            for dev in &mut layer_assignment.layer_devices {
-                *dev = Device::Cpu;
-            }
+            layer_assignment.layer_devices.fill(Device::Cpu);
             layer_assignment.gpu_layers = 0;
             layer_assignment.cpu_layers = cfg.num_layers;
             layer_assignment.gpu_budget = 0;
@@ -462,9 +460,7 @@ impl LlamaRunner {
                 }
                 Err(e) => {
                     warn!("GPU init failed: {e}. Falling back to CPU.");
-                    for dev in &mut layer_assignment.layer_devices {
-                        *dev = Device::Cpu;
-                    }
+                    layer_assignment.layer_devices.fill(Device::Cpu);
                     layer_assignment.gpu_layers = 0;
                     layer_assignment.cpu_layers = cfg.num_layers;
                 }
@@ -696,6 +692,16 @@ impl LlamaRunner {
         let n = token_ids.len();
         if n == 0 {
             return Err(Error::ExecutionError("Empty prompt".into()));
+        }
+        // `forward_batch` writes `n` positions into a `max_seq`-sized KV
+        // cache; without this check an oversized prompt indexes out of
+        // bounds (panic). Reject before touching the cache so every caller
+        // (server, C API, CLI) gets a clean error instead.
+        if n > self.kv.max_seq {
+            return Err(Error::ExecutionError(format!(
+                "Prompt length {} exceeds context window {}",
+                n, self.kv.max_seq
+            )));
         }
         let mut layer_tel = vec![LayerTelemetry::default(); self.cfg.num_layers];
         let logits = self.forward_batch(token_ids, &mut layer_tel)?;
@@ -1184,6 +1190,21 @@ impl LlamaRunner {
         let n_heads = cfg.num_heads;
         let n_kv_heads = cfg.num_kv_heads;
         let head_dim = cfg.head_dim;
+        // Validate inputs before indexing: `token_embeddings` is indexed by
+        // `token_id` and the KV cache by `pos` below. External callers (C API,
+        // Python bindings) can pass arbitrary ids/positions.
+        if (token_id as usize) >= cfg.vocab_size {
+            return Err(Error::ExecutionError(format!(
+                "token id {} out of vocabulary range (vocab_size={})",
+                token_id, cfg.vocab_size
+            )));
+        }
+        if pos >= self.kv.max_seq {
+            return Err(Error::ExecutionError(format!(
+                "decode position {} exceeds context window {}",
+                pos, self.kv.max_seq
+            )));
+        }
         // Sync CPU KV cache to GPU caches on first decode after prefill.
         if !self.kv_synced_to_gpu && self.ctx.wgpu_backend.is_some() {
             self.sync_kv_cache_to_gpu()?;
@@ -1966,9 +1987,10 @@ pub fn sample(
         return logits
             .iter()
             .enumerate()
-            // Model logits are finite f32 values (no NaN/inf) from the
-            // quantized_matmul / LM head path, so partial_cmp never returns None.
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).expect("logits are always finite"))
+            // NaN logits are theoretically possible from a broken GPU path;
+            // treat unordered comparisons as equal instead of panicking so
+            // sampling stays total even on degenerate inputs.
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(i, _)| i as u32)
             .unwrap_or(0);
     };
@@ -1985,9 +2007,9 @@ pub fn sample(
 
     // Top-p nucleus
     let mut indexed: Vec<(usize, f32)> = probs.iter().cloned().enumerate().collect();
-    // After softmax all probabilities are finite f32 ∈ (0,1] — no NaN/inf,
-    // and the nucleus is non-empty because top_p > 0, so partial_cmp never returns None.
-    indexed.sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).expect("probs are always finite"));
+    // Softmax outputs are in (0, 1] for finite inputs, but a NaN logit would
+    // propagate NaN through softmax; stay total by treating unordered as equal.
+    indexed.sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     let mut cumulative = 0.0f32;
     let mut nucleus: Vec<(usize, f32)> = Vec::new();
@@ -2125,17 +2147,52 @@ impl RunnerPool {
     }
 
     /// Acquire a runner from the pool. Blocks until one is available.
+    ///
+    /// Panic-free: a poisoned mutex is recovered from, and the
+    /// semaphore/runner-vec invariant is re-established by retrying instead
+    /// of unwrapping. (`Semaphore::acquire` only fails after `close`, which
+    /// this pool never calls; the retry loop below also covers that case
+    /// without leaking permits.)
     pub async fn acquire(&self) -> RunnerGuard<'_> {
-        let permit = self.semaphore.acquire().await.unwrap_or_else(|_| {
-            self.semaphore.add_permits(1);
-            self.semaphore.try_acquire().unwrap()
-        });
-        let runner = self.runners.lock().unwrap().pop().unwrap();
-        RunnerGuard {
-            runner: Some(runner),
-            pool: self,
-            permit,
+        loop {
+            let permit = match self.semaphore.acquire().await {
+                Ok(permit) => permit,
+                Err(_) => {
+                    // Semaphore was closed (never happens in practice):
+                    // restore a permit so the pool stays usable.
+                    self.semaphore.add_permits(1);
+                    continue;
+                }
+            };
+            let runner = self.runners.lock().unwrap_or_else(|e| e.into_inner()).pop();
+            match runner {
+                Some(runner) => {
+                    return RunnerGuard {
+                        runner: Some(runner),
+                        pool: self,
+                        permit,
+                    };
+                }
+                None => {
+                    // Permit held but no runner available: release the permit
+                    // and retry instead of panicking.
+                    drop(permit);
+                    tokio::task::yield_now().await;
+                }
+            }
         }
+    }
+
+    /// Maximum context length (KV-cache capacity) shared by pooled runners.
+    /// Callers should reject prompts at/above this length *before* prefill:
+    /// `prefill` writes `n` positions into a `max_seq`-sized cache.
+    pub fn max_seq(&self) -> usize {
+        self.runners
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .first()
+            .map(|r| r.kv.max_seq)
+            .unwrap_or(0)
     }
 }
 
@@ -2269,9 +2326,7 @@ mod tests {
 
         // CPU-only reference runner (force all layers to CPU)
         let mut runner_cpu = LlamaRunner::from_gguf(model_path).unwrap();
-        for dev in &mut runner_cpu.layer_assignment.layer_devices {
-            *dev = Device::Cpu;
-        }
+        runner_cpu.layer_assignment.layer_devices.fill(Device::Cpu);
 
         // Prefill — CPU-only path for both runners
         let logits_prefill_gpu = runner_gpu.prefill(&tokens).unwrap();
