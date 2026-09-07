@@ -9,6 +9,8 @@
         <string>/usr/local/bin/aether-server</string>
     </array>
     <key>EnvironmentVariables</key>
+    <!-- Replace CHANGE_ME before loading. Prefer `launchctl setenv` from a
+         0600 root-owned script over storing the key in this file. -->
     <dict>
         <key>AETHER_MODEL_PATH</key>
         <string>/usr/local/share/aether/model.gguf</string>

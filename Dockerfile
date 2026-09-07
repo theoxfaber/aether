@@ -24,8 +24,12 @@ RUN cargo build --release --bin aether-server
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates && \
+    ca-certificates curl && \
     rm -rf /var/lib/apt/lists/*
+
+# Run as a non-root user: a compromised server process must not own the
+# container filesystem.
+RUN useradd -r -s /usr/sbin/nologin aether
 
 COPY --from=builder /app/target/release/aether-server /usr/local/bin/aether-server
 
@@ -35,4 +39,14 @@ ENV AETHER_CPU_ONLY=true
 
 EXPOSE 8080
 
+USER aether
+
+# Fail closed if the process stops serving (no curl in slim images by
+# default — installed above).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
+    CMD curl -sf http://127.0.0.1:8080/health || exit 1
+
+# NOTE: terminate TLS at a reverse proxy (nginx/caddy) in front of this
+# container — the server speaks plain HTTP. Always set AETHER_API_KEY when
+# the port is reachable beyond localhost.
 ENTRYPOINT ["aether-server"]
