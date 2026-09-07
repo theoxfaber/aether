@@ -35,6 +35,14 @@ use tracing::{error, info, warn};
 
 use aether::inference::runner::{sample, LlamaRunner, LoadOptions, RunnerPool};
 
+// ── Request limits ───────────────────────────────────────────────────────────
+// Axum's `Json` extractor already enforces its 2 MiB default body limit; the
+// caps below bound what a max-size body can cost in CPU/RAM/time.
+// A single request must fit comfortably inside the model's context window
+// and finish in reasonable time on CPU inference.
+const MAX_MESSAGES: usize = 1024;
+const MAX_PROMPT_CHARS: usize = 256_000;
+
 // ── CLI ────────────────────────────────────────────────────────────────────────
 
 #[derive(Parser, Debug)]
@@ -374,7 +382,11 @@ async fn main() {
         addr, model_name, args.max_tokens, args.max_concurrency
     );
     if let Some(ref key) = args.api_key {
-        info!("API key auth enabled on /v1/* (key length={})", key.len());
+        if key.is_empty() {
+            warn!("AETHER_API_KEY is empty — /v1/* routes are effectively unauthenticated");
+        } else {
+            info!("API key auth enabled on /v1/*");
+        }
     } else {
         warn!("No API key — /v1/* routes are unauthenticated");
     }
@@ -384,12 +396,8 @@ async fn main() {
         info!("Rate limiting disabled");
     }
 
-    let graceful = async {
-        let _ = tokio::signal::ctrl_c().await;
-        info!("Shutdown signal received, stopping server...");
-        // Brief drain period for in-flight requests
-        tokio::time::sleep(Duration::from_millis(500)).await;
-    };
+    let graceful = shutdown_signal();
+    info!("Shutdown handler armed (Ctrl-C / SIGTERM)");
 
     if let Err(e) = axum::serve(listener, app)
         .with_graceful_shutdown(graceful)
@@ -398,6 +406,29 @@ async fn main() {
         error!("Server error: {}", e);
         std::process::exit(1);
     }
+}
+
+/// Wait for Ctrl-C or (on Unix) SIGTERM, then return.
+///
+/// The original code only listened for Ctrl-C, so Docker/Kubernetes SIGTERM
+/// was ignored and the container was hard-killed after the stop grace
+/// period, aborting in-flight requests. Axum drains in-flight connections
+/// once this future resolves — no artificial sleep needed.
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {},
+            _ = sigterm.recv() => {},
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
+    info!("Shutdown signal received, draining in-flight requests...");
 }
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
@@ -454,10 +485,13 @@ async fn require_api_key(
             .get(header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok())
             .is_some_and(|h| {
-                h.strip_prefix("Bearer ")
+                let presented = h
+                    .strip_prefix("Bearer ")
                     .or_else(|| h.strip_prefix("bearer "))
-                    .unwrap_or(h)
-                    == expected.as_str()
+                    .unwrap_or(h);
+                // Constant-time comparison: `==` would leak the expected key
+                // byte-by-byte through response timing.
+                ct_eq(presented, expected.as_str())
             });
         if !authorized {
             return api_error(
@@ -468,6 +502,50 @@ async fn require_api_key(
         }
     }
     next.run(req).await
+}
+
+/// Constant-time string equality (no `subtle` dependency needed for this).
+/// Returns false immediately on length mismatch — key length is not secret
+/// here since operators choose fixed-format tokens.
+fn ct_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// Validate user-controlled sampling parameters.
+/// `sample()` is total for any f32, but NaN/negative/out-of-range values are
+/// never intentional — reject them with 400 instead of silently degrading
+/// (e.g. NaN temperature collapses to greedy).
+fn validate_sampling(temperature: f32, top_p: f32, repetition_penalty: f32) -> Option<Response> {
+    if !(temperature.is_finite() && (0.0..=10.0).contains(&temperature)) {
+        return Some(api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            "temperature must be a finite number in [0, 10]",
+        ));
+    }
+    if !(top_p.is_finite() && (0.0..=1.0).contains(&top_p)) {
+        return Some(api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            "top_p must be a finite number in [0, 1]",
+        ));
+    }
+    if !(repetition_penalty.is_finite() && (0.0..=5.0).contains(&repetition_penalty)) {
+        return Some(api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            "repetition_penalty must be a finite number in [0, 5]",
+        ));
+    }
+    None
 }
 
 // ─── Handlers ─────────────────────────────────────────────────────────────────
@@ -547,7 +625,9 @@ aether_requests_per_second {rate:.4}
 # TYPE aether_model_info gauge
 aether_model_info{{model=\"{name}\",cpu_only=\"{cpu}\"}} 1
 ",
-        name = state.model_name,
+        // `model_name` derives from the operator's `--model` path, but quote
+        // it anyway: an exotic filename must not break exposition format.
+        name = prom_escape(&state.model_name),
         cpu = state.cpu_only,
     );
     (
@@ -587,6 +667,16 @@ async fn handle_chat_completions(
             "messages must not be empty",
         );
     }
+    if req.messages.len() > MAX_MESSAGES {
+        return api_error(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "invalid_request_error",
+            "too many messages in a single request",
+        );
+    }
+    if let Some(err) = validate_sampling(req.temperature, req.top_p, req.repetition_penalty) {
+        return err;
+    }
 
     let max_tokens = req
         .max_tokens
@@ -601,6 +691,13 @@ async fn handle_chat_completions(
     }
 
     let prompt = format_messages(&req.messages);
+    if prompt.chars().count() > MAX_PROMPT_CHARS {
+        return api_error(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "invalid_request_error",
+            "prompt text exceeds the maximum request size",
+        );
+    }
     let chat_id = format!("chatcmpl-{}", fast_rand_id());
     let created_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -616,12 +713,25 @@ async fn handle_chat_completions(
         let temperature = req.temperature;
         let top_p = req.top_p;
         let repetition_penalty = req.repetition_penalty;
+        // Prompt length is enforced inside the task (encoding needs a
+        // runner); oversized prompts arrive as stream errors, not panics.
+        let context_window = state.pool.max_seq();
 
         tokio::spawn(async move {
             let mut runner = state.pool.acquire().await;
             runner.kv.reset();
 
             let token_ids = runner.tokenizer.encode(&prompt, true);
+            if token_ids.len() >= context_window {
+                let _ = tx
+                    .send(Err(aether::Error::ExecutionError(format!(
+                        "Prompt length {} meets/exceeds context window {} — no room to generate",
+                        token_ids.len(),
+                        context_window
+                    ))))
+                    .await;
+                return;
+            }
             let prompt_len = token_ids.len();
             let mut prev_tokens = token_ids.clone();
 
@@ -753,6 +863,13 @@ async fn handle_chat_completions(
 
             let token_ids = runner.tokenizer.encode(&prompt, true);
             let prompt_len = token_ids.len();
+            if prompt_len >= runner.kv.max_seq {
+                return api_error(
+                    StatusCode::BAD_REQUEST,
+                    "invalid_request_error",
+                    "prompt meets/exceeds the model context window — no room left to generate",
+                );
+            }
 
             let generated_text = match runner.generate(
                 &prompt,
@@ -816,6 +933,16 @@ async fn handle_completions(
             "max_tokens must be at least 1",
         );
     }
+    if let Some(err) = validate_sampling(req.temperature, req.top_p, req.repetition_penalty) {
+        return err;
+    }
+    if req.prompt.chars().count() > MAX_PROMPT_CHARS {
+        return api_error(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "invalid_request_error",
+            "prompt text exceeds the maximum request size",
+        );
+    }
 
     let comp_id = format!("cmpl-{}", fast_rand_id());
     let created_time = SystemTime::now()
@@ -836,6 +963,16 @@ async fn handle_completions(
             runner.kv.reset();
 
             let token_ids = runner.tokenizer.encode(&req.prompt, true);
+            if token_ids.len() >= runner.kv.max_seq {
+                let _ = tx
+                    .send(Err(aether::Error::ExecutionError(format!(
+                        "Prompt length {} meets/exceeds context window {} — no room to generate",
+                        token_ids.len(),
+                        runner.kv.max_seq
+                    ))))
+                    .await;
+                return;
+            }
             let prompt_len = token_ids.len();
             let mut prev_tokens = token_ids.clone();
             let mut pos = prompt_len;
@@ -911,10 +1048,18 @@ async fn handle_completions(
 
         (StatusCode::OK, cors_headers(), Sse::new(stream)).into_response()
     } else {
-        let generated_text = {
+        let (generated_text, prompt_tokens, completion_tokens) = {
             let mut runner = state.pool.acquire().await;
             runner.kv.reset();
-            match runner.generate(
+            let prompt_len = runner.tokenizer.encode(&req.prompt, true).len();
+            if prompt_len >= runner.kv.max_seq {
+                return api_error(
+                    StatusCode::BAD_REQUEST,
+                    "invalid_request_error",
+                    "prompt meets/exceeds the model context window — no room left to generate",
+                );
+            }
+            let generated_text = match runner.generate(
                 &req.prompt,
                 max_tokens,
                 req.temperature,
@@ -929,11 +1074,11 @@ async fn handle_completions(
                         &format!("Generation failed: {}", e),
                     );
                 }
-            }
+            };
+            // Real token counts, not estimates: re-encode both sides.
+            let completion_len = runner.tokenizer.encode(&generated_text, false).len();
+            (generated_text, prompt_len, completion_len)
         };
-
-        let prompt_tokens = generated_text.split_whitespace().count();
-        let completion_tokens = max_tokens;
 
         let response = CompletionResponse {
             id: comp_id,
@@ -970,6 +1115,13 @@ fn format_messages(messages: &[Message]) -> String {
     }
     prompt.push_str("<|assistant|>\n");
     prompt
+}
+
+/// Escape a label value for Prometheus exposition format.
+fn prom_escape(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
 }
 
 fn fast_rand_id() -> String {
