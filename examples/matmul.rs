@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Data: {:?}", result.data());
     println!("Shape: {:?}", result.shape().dims());
 
-    let expected = vec![2.0, 0.0, 6.0, 8.0];
+    let expected = [2.0, 0.0, 6.0, 8.0];
     assert_eq!(result.data(), &expected[..]);
     println!("Validation successful! Numerical correctness verified.");
 

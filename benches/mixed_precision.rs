@@ -87,7 +87,8 @@ fn bench_grad_scaler_update(c: &mut Criterion) {
 
     group.bench_function("update_finite", |bencher| {
         bencher.iter(|| {
-            black_box(scaler.update(true));
+            let _: () = scaler.update(true);
+            black_box(());
         });
     });
     group.finish();

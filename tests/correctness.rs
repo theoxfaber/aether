@@ -330,7 +330,7 @@ fn test_dynamic_ast_and_broadcasting_wgpu() {
 
     let res = a.mul(b).sub(a.tanh()).run(Device::Wgpu).unwrap();
 
-    let expected = vec![
+    let expected = [
         (1.0 * 0.5) - 1.0f32.tanh(),
         (2.0 * 1.0) - 2.0f32.tanh(),
         (3.0 * 2.0) - 3.0f32.tanh(),
@@ -352,7 +352,7 @@ fn test_broadcasting_add_mul_wgpu() {
 
     let res = a.add(b).run(Device::Wgpu).unwrap();
 
-    let expected = vec![1.0 + 3.0, 2.0 + 4.0, 1.0 + 5.0, 2.0 + 6.0];
+    let expected = [1.0 + 3.0, 2.0 + 4.0, 1.0 + 5.0, 2.0 + 6.0];
     assert_eq!(res.data(), &expected[..]);
 }
 
@@ -405,7 +405,7 @@ fn test_transpose_correctness() {
     let res_cpu = a.transpose().run(Device::Cpu).unwrap();
     let res_gpu = a.transpose().run(Device::Wgpu).unwrap();
 
-    let expected = vec![1.0, 4.0, 2.0, 5.0, 3.0, 6.0];
+    let expected = [1.0, 4.0, 2.0, 5.0, 3.0, 6.0];
 
     assert_eq!(res_cpu.data(), &expected[..]);
     assert_eq!(res_gpu.data(), &expected[..]);
@@ -472,11 +472,11 @@ fn test_softmax_correctness() {
     let s1_0 = exp2 / sum1;
     let s1_1 = exp3 / sum1;
 
-    let expected = vec![s0_0, s0_1, s1_0, s1_1];
+    let expected = [s0_0, s0_1, s1_0, s1_1];
 
-    for i in 0..4 {
-        assert!((res_cpu.data()[i] - expected[i]).abs() < 1e-4);
-        assert!((res_gpu.data()[i] - expected[i]).abs() < 1e-4);
+    for (i, &e) in expected.iter().enumerate() {
+        assert!((res_cpu.data()[i] - e).abs() < 1e-4);
+        assert!((res_gpu.data()[i] - e).abs() < 1e-4);
     }
 }
 
@@ -745,9 +745,9 @@ fn test_autograd_eviction_interaction() {
     let grad_b_ref = grad_b_node.run(Device::Cpu).unwrap();
     let grad_c_ref = grad_c_node.run(Device::Cpu).unwrap();
 
-    let mut expected = vec![0.0; 4];
-    for i in 0..4 {
-        expected[i] = grad_a_ref.data()[i] + grad_b_ref.data()[i] + grad_c_ref.data()[i];
+    let mut expected = [0.0; 4];
+    for (i, e) in expected.iter_mut().enumerate() {
+        *e = grad_a_ref.data()[i] + grad_b_ref.data()[i] + grad_c_ref.data()[i];
     }
 
     assert_eq!(combined_gpu.data(), &expected[..]);
@@ -815,7 +815,7 @@ fn test_v5_ops_correctness_and_gradients() {
     // Verify BMM values
     // Batch 1: [1,2,3; 4,5,6] * [1,2; 3,4; 5,6] = [22, 28; 49, 64]
     // Batch 2: [7,8,9; 1,2,3] * [1,0; 0,1; 1,1] = [16, 17; 4, 5]
-    let expected_bmm = vec![22.0, 28.0, 49.0, 64.0, 16.0, 17.0, 4.0, 5.0];
+    let expected_bmm = [22.0, 28.0, 49.0, 64.0, 16.0, 17.0, 4.0, 5.0];
     assert_eq!(res_bmm_cpu.data(), &expected_bmm[..]);
     assert_eq!(res_bmm_gpu.data(), &expected_bmm[..]);
 
@@ -857,7 +857,7 @@ fn test_v5_ops_correctness_and_gradients() {
     // Max of [5,4; 2,1] is 5.0
     // Max of [0,1; 2,3] is 3.0
     // Max of [9,8; 7,6] is 9.0
-    let expected_maxpool = vec![4.0, 5.0, 3.0, 9.0];
+    let expected_maxpool = [4.0, 5.0, 3.0, 9.0];
     assert_eq!(res_maxpool_cpu.data(), &expected_maxpool[..]);
     assert_eq!(res_maxpool_gpu.data(), &expected_maxpool[..]);
 
@@ -892,7 +892,7 @@ fn test_v5_ops_correctness_and_gradients() {
     // (5+4+2+1)/4 = 3.0
     // (0+1+2+3)/4 = 1.5
     // (9+8+7+6)/4 = 7.5
-    let expected_avgpool = vec![2.5, 3.0, 1.5, 7.5];
+    let expected_avgpool = [2.5, 3.0, 1.5, 7.5];
     assert_eq!(res_avgpool_cpu.data(), &expected_avgpool[..]);
     assert_eq!(res_avgpool_gpu.data(), &expected_avgpool[..]);
 
@@ -909,7 +909,7 @@ fn test_v5_ops_correctness_and_gradients() {
         .unwrap()
         .run(Device::Wgpu)
         .unwrap();
-    let expected_grad_xavg = vec![0.25; 16];
+    let expected_grad_xavg = [0.25; 16];
     assert_eq!(grad_xavg_cpu.data(), &expected_grad_xavg[..]);
     assert_eq!(grad_xavg_gpu.data(), &expected_grad_xavg[..]);
 

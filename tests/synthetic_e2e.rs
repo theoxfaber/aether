@@ -17,7 +17,7 @@ fn write_string(w: &mut impl Write, s: &str) {
     w.write_all(s.as_bytes()).unwrap();
 }
 fn pad_to(w: &mut Vec<u8>, align: usize) {
-    while w.len() % align != 0 {
+    while !w.len().is_multiple_of(align) {
         w.push(0);
     }
 }

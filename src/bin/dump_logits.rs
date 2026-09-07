@@ -17,7 +17,7 @@ fn main() -> Result<(), Error> {
     let args = Args::parse();
     let mut runner = LlamaRunner::from_gguf(&args.model)?;
     let token_ids = runner.tokenizer.encode(&args.prompt, true);
-    eprintln!("Token IDs: {:?}", &token_ids);
+    eprintln!("Token IDs: {:?}", token_ids);
     eprintln!("Num tokens: {}", token_ids.len());
     let _cfg_vocab = runner.ctx.model.config.vocab_size;
 

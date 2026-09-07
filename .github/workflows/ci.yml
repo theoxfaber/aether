@@ -18,11 +18,11 @@ jobs:
         run: rustup update stable && rustup default stable && rustup component add clippy rustfmt
       - uses: Swatinem/rust-cache@v2
       - name: Build
-        run: cargo build
+        run: cargo build --workspace --all-targets
       - name: Test
-        run: cargo test
+        run: cargo test --workspace
       - name: Clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Format
         run: cargo fmt --check
 
@@ -42,8 +42,8 @@ jobs:
           sudo apt-get install -y -qq mesa-vulkan-drivers vulkan-tools
           vulkaninfo --summary 2>&1 | head -20 || true
       - name: Build with GPU features
-        run: cargo build --features gpu-tests
+        run: cargo build --workspace --all-targets --features gpu-tests
       - name: Run GPU tests
-        run: cargo test --features gpu-tests
+        run: cargo test --workspace --features gpu-tests
       - name: Clippy (GPU features)
-        run: cargo clippy --features gpu-tests -- -D warnings
+        run: cargo clippy --workspace --all-targets --features gpu-tests -- -D warnings

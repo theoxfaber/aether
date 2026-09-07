@@ -16,10 +16,10 @@ fn main() {
                 nan_blocks.push((bi, d, dmin));
             }
             // Also check for extreme values
-            if d.abs() > 1000.0 || dmin.abs() > 1000.0 {
-                if nan_blocks.is_empty() || nan_blocks.last().map_or(true, |&(i, _, _)| i != bi) {
-                    // Don't add duplicate from both checks
-                }
+            if (d.abs() > 1000.0 || dmin.abs() > 1000.0)
+                && (nan_blocks.is_empty() || nan_blocks.last().is_none_or(|&(i, _, _)| i != bi))
+            {
+                // Don't add duplicate from both checks
             }
         }
         println!("Total blocks: {}", n_blocks);

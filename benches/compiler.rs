@@ -49,7 +49,7 @@ fn bench_compiler_large_graph(c: &mut Criterion) {
     let graph = Graph::new();
     let n = 32;
     let mut prev = graph.tensor(vec![1.0; n], Shape::new(vec![n]));
-    for i in 0..10 {
+    for _i in 0..10 {
         let w = graph.tensor(vec![0.5; n * n], Shape::new(vec![n, n]));
         let b = graph.tensor(vec![0.1; n], Shape::new(vec![n]));
         prev = prev.matmul(w).add(b).relu();

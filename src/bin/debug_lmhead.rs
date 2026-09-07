@@ -76,7 +76,7 @@ fn main() {
     top_q.sort_unstable_by(|a, b| b.1.partial_cmp(a.1).unwrap());
     eprintln!(
         "Top 10 Q: {:?}",
-        &top_q[..10]
+        top_q[..10]
             .iter()
             .map(|(i, v)| (i, **v))
             .collect::<Vec<_>>()

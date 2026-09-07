@@ -137,7 +137,7 @@ fn main() -> Result<(), Error> {
 
     // For Q6_K, we need to use the layout as-is with n=vocab_size, so we can't easily
     // get just the first 10 columns. But we already have q6k_out.
-    eprintln!("Ref first 10: {:?}", &ref_sub);
+    eprintln!("Ref first 10: {:?}", ref_sub);
     eprintln!("Q6K first 10: {:?}", &q6k_out[..10]);
 
     Ok(())

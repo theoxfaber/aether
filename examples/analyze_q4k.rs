@@ -31,7 +31,7 @@ fn main() {
         let _key = read_string(&mut f);
         let val_type = read_u32(&mut f);
         match val_type {
-            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 => {
+            0..=7 => {
                 let mut b = [0u8; 4];
                 f.read_exact(&mut b).unwrap();
             }
@@ -45,7 +45,7 @@ fn main() {
                 let alen = read_u64(&mut f) as usize;
                 for _ in 0..alen {
                     match elem_type {
-                        0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 => {
+                        0..=7 => {
                             let mut b = [0u8; 4];
                             f.read_exact(&mut b).unwrap();
                         }
@@ -54,7 +54,7 @@ fn main() {
                             let mut s = vec![0u8; slen];
                             f.read_exact(&mut s).unwrap();
                         }
-                        10 | 11 | 12 => {
+                        10..=12 => {
                             let mut b = [0u8; 8];
                             f.read_exact(&mut b).unwrap();
                         }
@@ -62,7 +62,7 @@ fn main() {
                     }
                 }
             }
-            10 | 11 | 12 => {
+            10..=12 => {
                 let mut b = [0u8; 8];
                 f.read_exact(&mut b).unwrap();
             }

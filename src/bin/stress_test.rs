@@ -272,7 +272,7 @@ fn print_table(results: &[ScenarioResult], prompt: &str, max_tokens: usize) {
             );
             println!(
                 "║  First token: '{}'                                           ║",
-                &r.first_token
+                r.first_token
             );
             println!(
                 "║  Logits     : min={:.3}, max={:.3}                              ║",

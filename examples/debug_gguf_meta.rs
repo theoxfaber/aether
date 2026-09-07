@@ -81,14 +81,14 @@ fn main() {
                 // Read but discard array elements
                 for _ in 0..(alen.min(50) as usize) {
                     match elem_type {
-                        0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 => {
+                        0..=7 => {
                             let mut b = [0u8; 4];
                             f.read_exact(&mut b).unwrap();
                         }
                         8 => {
                             let _s = read_string(&mut f);
                         }
-                        10 | 11 | 12 => {
+                        10..=12 => {
                             let mut b = [0u8; 8];
                             f.read_exact(&mut b).unwrap();
                         }

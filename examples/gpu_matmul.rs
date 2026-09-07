@@ -14,7 +14,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("GPU result: {:?}", result.data());
     println!("Shape: {:?}", result.shape().dims());
 
-    let expected = vec![2.0f32, 0.0, 6.0, 8.0];
+    let expected = [2.0f32, 0.0, 6.0, 8.0];
     assert_eq!(result.data(), &expected[..], "GPU result must match CPU");
     println!("GPU correctness verified!");
     Ok(())
