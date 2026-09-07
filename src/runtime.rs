@@ -21,6 +21,20 @@ pub mod runtime_mod {
         Ok(())
     }
 
+    /// Run one scheduled op, converting a panic into an `Err`.
+    ///
+    /// A panicking worker would otherwise never send its completion message,
+    /// wedging the coordinator loop in `recv()` forever (hang instead of
+    /// error propagation through the rayon scope).
+    fn catch_op(run_op: &impl Fn(usize) -> Result<(), Error>, op_idx: usize) -> Result<(), Error> {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_op(op_idx))) {
+            Ok(r) => r,
+            Err(_) => Err(Error::ExecutionError(format!(
+                "op {op_idx} panicked during execution"
+            ))),
+        }
+    }
+
     fn execute_impl(
         target: &GraphTensor,
         device: Device,
@@ -378,8 +392,7 @@ pub mod runtime_mod {
                             let cancelled_ref = &cancelled;
                             s.spawn(move |_| {
                                 if !cancelled_ref.load(Ordering::SeqCst) {
-                                    let res = run_op(op_idx);
-                                    let _ = tx.send((op_idx, res));
+                                    let _ = tx.send((op_idx, catch_op(&run_op, op_idx)));
                                 } else {
                                     let _ = tx.send((op_idx, Ok(())));
                                 }
@@ -401,43 +414,20 @@ pub mod runtime_mod {
                         };
                         completed_tasks += 1;
 
+                        let scheduled_op = &schedule[op_idx];
+                        let (inputs, output_tid) = get_op_io(scheduled_op);
                         match res {
                             Ok(()) => {
-                                if cancelled.load(Ordering::SeqCst) {
-                                    continue;
-                                }
-                                // Decrement consumer ref counts and free if 0
-                                let scheduled_op = &schedule[op_idx];
-                                let (inputs, output_tid) = get_op_io(scheduled_op);
-                                for &in_tid in &inputs {
-                                    if in_tid != target_tid {
-                                        if let Some(ref_cnt) = remaining_consumers.get(&in_tid) {
-                                            if ref_cnt.fetch_sub(1, Ordering::SeqCst) == 1 {
-                                                registry.free(in_tid);
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // Resolve dependencies for consumer tasks
-                                // Only tensor IDs that were NOT pre-registered
-                                // contribute to in-degree, so only those producers
-                                // can unblock a consumer.
-                                if let Some(consumers) = tensor_to_pending.get(&output_tid) {
-                                    for &consumer_op_idx in consumers {
-                                        let prev = in_degrees[consumer_op_idx]
-                                            .fetch_sub(1, Ordering::SeqCst);
-                                        if prev == 1 {
-                                            let tx = tx.clone();
-                                            let cancelled_ref = &cancelled;
-                                            s.spawn(move |_| {
-                                                if !cancelled_ref.load(Ordering::SeqCst) {
-                                                    let res = run_op(consumer_op_idx);
-                                                    let _ = tx.send((consumer_op_idx, res));
-                                                } else {
-                                                    let _ = tx.send((consumer_op_idx, Ok(())));
+                                if !cancelled.load(Ordering::SeqCst) {
+                                    // Decrement consumer ref counts and free if 0
+                                    for &in_tid in &inputs {
+                                        if in_tid != target_tid {
+                                            if let Some(ref_cnt) = remaining_consumers.get(&in_tid)
+                                            {
+                                                if ref_cnt.fetch_sub(1, Ordering::SeqCst) == 1 {
+                                                    registry.free(in_tid);
                                                 }
-                                            });
+                                            }
                                         }
                                     }
                                 }
@@ -448,6 +438,38 @@ pub mod runtime_mod {
                                     shared_err.lock().expect("Shared error lock poisoned");
                                 if guard.is_none() {
                                     *guard = Some(e);
+                                }
+                            }
+                        }
+
+                        // Always resolve dependents — even for failed or
+                        // skipped ops. Previously only the success path
+                        // unblocked consumers, so a single failed op left its
+                        // dependents unspawned and the coordinator blocked in
+                        // `recv()` forever: the whole process hung instead of
+                        // returning the error. Dependents spawned after
+                        // cancellation immediately report `Ok` above.
+                        //
+                        // Only tensor IDs that were NOT pre-registered
+                        // contribute to in-degree, so only those producers
+                        // can unblock a consumer.
+                        if let Some(consumers) = tensor_to_pending.get(&output_tid) {
+                            for &consumer_op_idx in consumers {
+                                let prev =
+                                    in_degrees[consumer_op_idx].fetch_sub(1, Ordering::SeqCst);
+                                if prev == 1 {
+                                    let tx = tx.clone();
+                                    let cancelled_ref = &cancelled;
+                                    s.spawn(move |_| {
+                                        if !cancelled_ref.load(Ordering::SeqCst) {
+                                            let _ = tx.send((
+                                                consumer_op_idx,
+                                                catch_op(&run_op, consumer_op_idx),
+                                            ));
+                                        } else {
+                                            let _ = tx.send((consumer_op_idx, Ok(())));
+                                        }
+                                    });
                                 }
                             }
                         }

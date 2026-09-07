@@ -4,7 +4,39 @@ pub mod wgpu_backend_mod {
     use crate::tensor::{Shape, Tensor};
     use crate::Error;
     use std::sync::{Arc, OnceLock};
+    use std::time::{Duration, Instant};
     use wgpu::util::DeviceExt;
+
+    /// Seconds to wait for adapter/device creation before giving up and
+    /// falling back to CPU. Overridable via env (`0` = wait forever,
+    /// anything unparseable = default 60s).
+    fn gpu_init_timeout() -> Option<Duration> {
+        const DEFAULT: Duration = Duration::from_secs(60);
+        match std::env::var("AETHER_GPU_INIT_TIMEOUT_SECS")
+            .ok()
+            .as_deref()
+        {
+            Some("0") => None,
+            Some(v) => Some(
+                v.parse::<u64>()
+                    .ok()
+                    .filter(|&s| s > 0)
+                    .map(Duration::from_secs)
+                    .unwrap_or(DEFAULT),
+            ),
+            None => Some(DEFAULT),
+        }
+    }
+
+    /// Seconds to wait for a GPU buffer readback before failing.
+    fn gpu_read_timeout() -> Duration {
+        std::env::var("AETHER_GPU_READ_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .filter(|&s| s > 0)
+            .map(Duration::from_secs)
+            .unwrap_or(Duration::from_secs(120))
+    }
 
     include!("wgsl_shaders.rs");
 
@@ -320,11 +352,84 @@ pub mod wgpu_backend_mod {
         }
 
         pub fn get_or_init() -> Result<Self, Error> {
-            let res =
-                WGPU_BACKEND.get_or_init(|| Self::new_inner().map_err(|e| format!("{:?}", e)));
+            let res = WGPU_BACKEND.get_or_init(Self::new_inner_bounded);
             match res {
                 Ok(backend) => Ok(backend.clone()),
                 Err(err) => Err(Error::ExecutionError(err.clone())),
+            }
+        }
+
+        /// Adapter/device creation, bounded by [`gpu_init_timeout`].
+        ///
+        /// `request_adapter`/`request_device` block indefinitely when the GPU
+        /// stack wedges (headless hosts, broken drivers, sandboxes). Without
+        /// a bound, one bad host hangs the process — and the test suite —
+        /// forever instead of falling back to CPU. The init runs on a
+        /// dedicated thread so the timeout can fire while it is blocked.
+        fn new_inner_bounded() -> Result<Self, String> {
+            let (tx, rx) = std::sync::mpsc::channel();
+            if let Err(e) = std::thread::Builder::new()
+                .name("aether-wgpu-init".to_string())
+                .spawn(move || {
+                    let _ = tx.send(Self::new_inner_impl());
+                })
+            {
+                return Err(format!("failed to spawn GPU init thread: {e}"));
+            }
+            let result: Result<Self, Error> = match gpu_init_timeout() {
+                Some(timeout) => match rx.recv_timeout(timeout) {
+                    Ok(r) => r,
+                    Err(_) => Err(Error::ExecutionError(format!(
+                        "WGPU adapter/device init timed out after {timeout:?}; \
+                         set AETHER_GPU_INIT_TIMEOUT_SECS=0 to wait forever"
+                    ))),
+                },
+                None => match rx.recv() {
+                    Ok(r) => r,
+                    Err(_) => Err(Error::ExecutionError(
+                        "GPU init thread died before completing".to_string(),
+                    )),
+                },
+            };
+            result.map_err(|e| format!("{e:?}"))
+        }
+
+        /// Wait for a `map_async` callback, bounded by [`gpu_read_timeout`].
+        ///
+        /// `device.poll(Maintain::Wait)` + blocking `recv()` hangs forever on
+        /// a wedged device (observed: sandboxed hosts accept submissions but
+        /// never complete them, hanging eviction readbacks and the test
+        /// suite). Poll incrementally and fail with a timeout error instead.
+        pub(crate) fn await_map(
+            device: &wgpu::Device,
+            rx: std::sync::mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
+        ) -> Result<(), Error> {
+            let timeout = gpu_read_timeout();
+            let deadline = Instant::now() + timeout;
+            loop {
+                device.poll(wgpu::Maintain::Poll);
+                match rx.recv_timeout(Duration::from_millis(10)) {
+                    Ok(Ok(())) => return Ok(()),
+                    Ok(Err(e)) => {
+                        return Err(Error::ExecutionError(format!(
+                            "Buffer mapping failed: {e:?}"
+                        )));
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        return Err(Error::ExecutionError(
+                            "GPU callback channel disconnected during map_async".to_string(),
+                        ));
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        if Instant::now() >= deadline {
+                            return Err(Error::ExecutionError(format!(
+                                "GPU buffer readback timed out after {timeout:?}; \
+                                 the device may be wedged \
+                                 (set AETHER_GPU_READ_TIMEOUT_SECS to tune)"
+                            )));
+                        }
+                    }
+                }
             }
         }
 
@@ -431,7 +536,7 @@ pub mod wgpu_backend_mod {
             Ok(output_buf)
         }
 
-        fn new_inner() -> Result<Self, Error> {
+        fn new_inner_impl() -> Result<Self, Error> {
             let instance = wgpu::Instance::default();
 
             let adapter =
@@ -1043,21 +1148,7 @@ pub mod wgpu_backend_mod {
                 let _ = tx.send(result);
             });
 
-            self.inner.device.poll(wgpu::Maintain::Wait);
-            match rx.recv() {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => {
-                    return Err(Error::ExecutionError(format!(
-                        "Buffer mapping failed: {:?}",
-                        e
-                    )))
-                }
-                Err(_) => {
-                    return Err(Error::ExecutionError(
-                        "Channel disconnected during map_async".into(),
-                    ));
-                }
-            }
+            Self::await_map(&self.inner.device, rx)?;
 
             let data_view = staging_slice.get_mapped_range();
             let data = bytemuck::cast_slice::<u8, f32>(&data_view).to_vec();

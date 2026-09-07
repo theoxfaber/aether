@@ -898,12 +898,9 @@ fn download_buffer_slice(
         let _ = tx.send(result);
     });
 
-    device.poll(wgpu::Maintain::Wait);
-    rx.recv()
-        .map_err(|_| {
-            crate::Error::ExecutionError("channel must be alive for buffer readback".to_string())
-        })?
-        .map_err(|_| crate::Error::ExecutionError("buffer map_async must succeed".to_string()))?;
+    // Bounded wait: `device.poll(Wait)` + blocking `recv()` hangs forever on
+    // a wedged device (eviction then wedges the whole runtime).
+    crate::backend::WgpuBackend::await_map(device, rx)?;
 
     let data_view = buffer_slice.get_mapped_range();
     let data = match dtype {
