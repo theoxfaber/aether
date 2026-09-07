@@ -23,11 +23,17 @@ typedef struct aether_model aether_model;
 #define AETHER_ERR     -1
 #define AETHER_TIMEOUT -2
 
-/* ── Model lifecycle ──────────────────────────────────────────────────── */
+/* ── Model lifecycle ────────────────────────────────────────────────────
+ *
+ * aether_load / aether_load_streaming return NULL on failure, including
+ * NULL path. All entry points below are NULL-safe (getters return -1,
+ * inference functions return AETHER_ERR) and never unwind across the
+ * FFI boundary: internal panics are caught and reported as errors.
+ */
 
 AETHER_API aether_model* aether_load(const char* path);
 AETHER_API aether_model* aether_load_streaming(const char* path, int max_hot);
-AETHER_API void aether_free(aether_model* model);
+AETHER_API void aether_free(aether_model* model); /* NULL-safe */
 
 /* ── Config queries ───────────────────────────────────────────────────── */
 
@@ -65,6 +71,11 @@ AETHER_API void aether_free_tokens(int* tokens);
  *
  * Position tracking: after aether_prefill with N tokens, the first decode
  * step has pos = N. Increment pos by 1 for each subsequent decode step.
+ *
+ * Validation: token ids must be in [0, vocab_size), n_tokens in
+ * [1, 1048576], pos >= 0. Violations return AETHER_ERR without touching
+ * out-buffers. Only free token arrays returned by aether_encode, exactly
+ * once, with aether_free_tokens.
  */
 
 AETHER_API int aether_prefill(aether_model* model, const int* tokens, int n_tokens, float* logits_out);
