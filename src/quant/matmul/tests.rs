@@ -349,10 +349,12 @@ fn test_q8_0_correctness() {
     for m in m_cases {
         let a = generate_activations(m, k);
         let mut c_dotprod = vec![0.0f32; m * n];
-        let mut c_ref = vec![0.0f32; m * n];
 
         #[cfg(target_arch = "aarch64")]
         {
+            // Declared inside the arch-gated block: on other architectures
+            // this reference buffer would be unused (`-D warnings` fails CI).
+            let mut c_ref = vec![0.0f32; m * n];
             let a_quant = if m > 1 {
                 neon::quantize_activations_q8_0_batched(&a, m, k)
             } else {
